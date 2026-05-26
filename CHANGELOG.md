@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased (v0.1.5)
+## Unreleased (v0.1.6)
+
+- **`getattr` indirection detection** — Python scanner now flags `getattr(os/subprocess/sys/__builtins__, ...)` as CRITICAL; common obfuscation technique used in real supply-chain attacks
+- **Hex/unicode escape obfuscation detection** — Python scanner now flags sequences of 4+ consecutive `\xNN` hex escapes as CRITICAL (e.g. `\x65\x76\x61\x6c` encodes `eval`)
+
+---
+
+## v0.1.5
 
 - **`scan` subcommand** — `argus install` renamed to `argus scan`; exit 0 on clean, exit 1 on blocked; composable with any package manager (`argus scan ./pkg && pip install ./pkg`)
 - **Entropy false-positive fix** — high-entropy string detection now restricted to assignment expressions (`x = "..."`) rather than all quoted strings; eliminates noise from base64-encoded assets, test fixtures, and function-call arguments

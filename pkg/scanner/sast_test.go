@@ -135,6 +135,28 @@ func TestRegexScanner_DynamicImport(t *testing.T) {
 	assertRegex(t, pyRules, "loader.py", `mod = importlib.import_module(name)`, 1, Warning)
 }
 
+func TestRegexScanner_GetattrIndirection_Os(t *testing.T) {
+	assertRegex(t, pyRules, "evil.py", `getattr(os, 'system')("id")`, 1, Critical)
+}
+
+func TestRegexScanner_GetattrIndirection_Builtins(t *testing.T) {
+	assertRegex(t, pyRules, "evil.py", `getattr(__builtins__, "eval")(payload)`, 1, Critical)
+}
+
+func TestRegexScanner_GetattrIndirection_Subprocess(t *testing.T) {
+	assertRegex(t, pyRules, "evil.py", `getattr(subprocess, "Popen")(cmd)`, 1, Critical)
+}
+
+func TestRegexScanner_HexEscapeObfuscation(t *testing.T) {
+	// \x65\x76\x61\x6c encodes "eval"
+	assertRegex(t, pyRules, "evil.py", `\x65\x76\x61\x6c(payload)`, 1, Critical)
+}
+
+func TestRegexScanner_HexEscapeObfuscation_Short_Ignored(t *testing.T) {
+	// fewer than 4 consecutive hex escapes should not fire
+	assertRegex(t, pyRules, "clean.py", `path = "\x2f\x74\x6d"`, 0, Warning)
+}
+
 // ---------------------------------------------------------------------------
 // RegexScanner — Ruby
 // ---------------------------------------------------------------------------

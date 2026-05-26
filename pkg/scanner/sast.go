@@ -336,6 +336,12 @@ var pyRules = []regexRule{
 	{re: must(`AKIA[0-9A-Z]{16}`), ruleName: "AWS access key", severity: Critical},
 	{re: must(`ghp_[a-zA-Z0-9]{36}`), ruleName: "GitHub personal access token", severity: Critical},
 	{re: must(`sk-[a-zA-Z0-9]{32,}`), ruleName: "OpenAI API key", severity: Critical},
+	// getattr on dangerous modules is a common obfuscation technique to avoid
+	// writing os.system or subprocess.call directly in source.
+	{re: must(`getattr\s*\(\s*(os|subprocess|sys|__builtins__)\s*,`), ruleName: "getattr indirection on dangerous module", severity: Critical},
+	// Four or more consecutive \x hex escapes strongly indicate an encoded
+	// function name (e.g. \x65\x76\x61\x6c encodes "eval").
+	{re: must(`(?:\\x[0-9a-fA-F]{2}){4,}`), ruleName: "hex/unicode escape obfuscation", severity: Critical},
 	{re: must(`importlib\.import_module\s*\(`), ruleName: "dynamic import via importlib", severity: Warning},
 	{re: must(`verify\s*=\s*False`), ruleName: "SSL certificate verification disabled", severity: Warning},
 	{re: must(`\b(?:\d{1,3}\.){3}\d{1,3}\b`), ruleName: "raw IP address", severity: Warning},
