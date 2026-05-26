@@ -68,6 +68,7 @@ var extensionScanners = map[string]Scanner{
 	".gemspec": &RegexScanner{rules: rubyRules},
 	".sh":      &RegexScanner{rules: shellRules},
 	".bash":    &RegexScanner{rules: shellRules},
+	".rs":      &RustScanner{},
 }
 
 // Scan walks dir, dispatches each recognised source file to the appropriate
@@ -391,6 +392,40 @@ var rubyRules = []regexRule{
 	{re: must(`\bsend\s*\(`), ruleName: "dynamic method dispatch via send()", severity: Warning},
 	{re: must(`VERIFY_NONE`), ruleName: "SSL certificate verification disabled", severity: Warning},
 	{re: must(`\b(?:\d{1,3}\.){3}\d{1,3}\b`), ruleName: "raw IP address", severity: Warning},
+}
+
+// rustRules covers Rust source files. Unsafe blocks and process execution are
+// the primary supply-chain attack vectors; FFI and file-embedding macros are
+// flagged at WARNING severity for manual review.
+var rustRules = []regexRule{
+	{re: must(`\bunsafe\s*\{`), ruleName: "unsafe block", severity: Critical},
+	{re: must(`Command::new\s*\(`), ruleName: "process::Command usage (shell execution)", severity: Critical},
+	{re: must(`(?i)(password|secret|api_key|token)\s*=\s*['"][^'"]{8,}`), ruleName: "hardcoded secret", severity: Critical},
+	{re: must(`AKIA[0-9A-Z]{16}`), ruleName: "AWS access key", severity: Critical},
+	{re: must(`ghp_[a-zA-Z0-9]{36}`), ruleName: "GitHub personal access token", severity: Critical},
+	{re: must(`sk-[a-zA-Z0-9]{32,}`), ruleName: "OpenAI API key", severity: Critical},
+	{re: must(`extern\s+"C"\s*\{`), ruleName: "FFI extern block (C interop)", severity: Warning},
+	{re: must(`include_(?:bytes|str)!\s*\(`), ruleName: "file embedding macro (include_bytes!/include_str!)", severity: Warning},
+	{re: must(`\b(?:\d{1,3}\.){3}\d{1,3}\b`), ruleName: "raw IP address", severity: Warning},
+}
+
+// RustScanner wraps RegexScanner for .rs files and additionally flags build.rs
+// as a WARNING — Cargo executes build.rs at compile time, making it a
+// compile-time code-execution vector regardless of its contents.
+type RustScanner struct{}
+
+func (s *RustScanner) Scan(path string, content []byte) ([]Finding, error) {
+	findings, err := (&RegexScanner{rules: rustRules}).Scan(path, content)
+	if filepath.Base(path) == "build.rs" {
+		findings = append([]Finding{{
+			File:     path,
+			Line:     1,
+			Rule:     "build.rs present (Cargo compile-time execution)",
+			Snippet:  "build.rs",
+			Severity: Warning,
+		}}, findings...)
+	}
+	return findings, err
 }
 
 // ---------------------------------------------------------------------------

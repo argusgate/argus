@@ -208,6 +208,77 @@ func TestRegexScanner_ChildProcess(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// RustScanner
+// ---------------------------------------------------------------------------
+
+func TestRustScanner_UnsafeBlock(t *testing.T) {
+	assertFindings(t, &RustScanner{}, "lib.rs", `unsafe { *ptr = 1; }`, 1, Critical)
+}
+
+func TestRustScanner_CommandNew(t *testing.T) {
+	assertFindings(t, &RustScanner{}, "main.rs", `Command::new("curl").arg(c2).output().unwrap();`, 1, Critical)
+}
+
+func TestRustScanner_HardcodedSecret(t *testing.T) {
+	assertFindings(t, &RustScanner{}, "config.rs", `let api_key = "sk-realkey123456789012345678901234";`, 1, Critical)
+}
+
+func TestRustScanner_FFIExtern(t *testing.T) {
+	assertFindings(t, &RustScanner{}, "ffi.rs", `extern "C" { fn dangerous(); }`, 1, Warning)
+}
+
+func TestRustScanner_IncludeBytes(t *testing.T) {
+	assertFindings(t, &RustScanner{}, "embed.rs", `let payload = include_bytes!("../data/payload.bin");`, 1, Warning)
+}
+
+func TestRustScanner_BuildRsWarning(t *testing.T) {
+	// build.rs should always surface a WARNING regardless of content.
+	findings, err := (&RustScanner{}).Scan("build.rs", []byte(`fn main() {}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.Rule == "build.rs present (Cargo compile-time execution)" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected build.rs warning finding; got none")
+	}
+}
+
+func TestRustScanner_BuildRsWithUnsafe(t *testing.T) {
+	// build.rs with unsafe block should produce both the build.rs warning and
+	// the unsafe finding.
+	findings, err := (&RustScanner{}).Scan("build.rs", []byte(`fn main() { unsafe { do_bad(); } }`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var hasBuildWarning, hasUnsafe bool
+	for _, f := range findings {
+		switch f.Rule {
+		case "build.rs present (Cargo compile-time execution)":
+			hasBuildWarning = true
+		case "unsafe block":
+			hasUnsafe = true
+		}
+	}
+	if !hasBuildWarning {
+		t.Error("expected build.rs warning")
+	}
+	if !hasUnsafe {
+		t.Error("expected unsafe block finding")
+	}
+}
+
+func TestRustScanner_CleanFile(t *testing.T) {
+	// A plain Rust file with no dangerous patterns should produce no findings.
+	assertFindings(t, &RustScanner{}, "main.rs", `fn main() { println!("hello"); }`, 0, "")
+}
+
+// ---------------------------------------------------------------------------
 // IP address filtering
 // ---------------------------------------------------------------------------
 
