@@ -1,5 +1,8 @@
 name: 'Argus Security Scan'
 description: 'Scan a package directory or archive for malicious code before installation.'
+branding:
+  icon: shield
+  color: red
 
 inputs:
   path:
