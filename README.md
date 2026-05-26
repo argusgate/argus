@@ -2,7 +2,41 @@
 
 **Security gateway for AI agent and MCP package installation.**
 
+[![CI](https://img.shields.io/github/actions/workflow/status/argusgate/argus/ci.yml?branch=main&label=CI)](https://github.com/argusgate/argus/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/argusgate/argus)](https://github.com/argusgate/argus/releases/latest)
+[![Go version](https://img.shields.io/github/go-mod/go-version/argusgate/argus)](go.mod)
+[![Licence](https://img.shields.io/github/license/argusgate/argus)](LICENSE)
+
 Argus intercepts packages before they are installed and performs static analysis on their source code, catching malicious payloads that bypass manifest-level checks. If critical findings are present, installation is blocked and the user is prompted to confirm or abort.
+
+---
+
+## Quick start
+
+```bash
+# Install
+brew tap argusgate/tap && brew install argus
+
+# Scan before installing
+argus scan ./my-package && pip install ./my-package
+argus scan package.tar.gz && npm install
+```
+
+---
+
+## Table of contents
+
+- [The Problem](#the-problem)
+- [Key Features](#key-features)
+- [Installation](#installation)
+- [GitHub Actions](#github-actions)
+- [Usage](#usage)
+- [Rule Coverage](#rule-coverage)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Known Limitations](#known-limitations-v2-roadmap)
+- [Contributing](#contributing)
+- [Licence](#licence)
 
 ---
 
@@ -15,8 +49,9 @@ Modern AI agent and MCP ecosystems encourage installing packages from the intern
 ## Key Features
 
 - **Go AST analysis** — precise call-site detection for dangerous Go APIs with no false positives from string matching; import aliases are resolved to full package paths
-- **Regex + entropy scanning** — Python, JavaScript, TypeScript, and shell scripts scanned for dangerous patterns, hardcoded secrets, and high-entropy strings
+- **Regex + entropy scanning** — Python, JavaScript, TypeScript, Ruby, Rust, and shell scripts scanned for dangerous patterns, hardcoded secrets, and high-entropy strings
 - **Two severity tiers** — `CRITICAL` blocks installation with a prompt; `WARNING` is logged but non-blocking
+- **Nested archive scanning** — `.tar.gz` and `.zip` files embedded inside a package are automatically extracted and scanned (up to 2 levels deep)
 - **Zip-slip protection** — archive extraction rejects path traversal attempts
 - **Extraction size cap** — 100 MiB per-file ceiling on archive extraction guards against zip-bomb payloads; source files larger than 1 MiB are skipped during SAST scanning
 - **CI-safe** — non-interactive sessions auto-decline critical findings and exit 1; no silent installs in pipelines
@@ -385,6 +420,7 @@ The following evasion techniques are not caught by the current rule set. They ar
 | `getattr` indirection | `getattr(os, 'sys'+'tem')(cmd)` |
 | Unicode escape obfuscation | `\x65\x76\x61\x6c(payload)` |
 | Split secret across variables | `k1="sk-abc"; k2="xyz"` |
+
 Taint-flow analysis is required for reliable detection of these techniques.
 
 ---
