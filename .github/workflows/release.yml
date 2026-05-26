@@ -36,3 +36,23 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+
+      - name: Update Homebrew formula
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          TARBALL_URL="https://github.com/argusgate/argus/archive/refs/tags/${VERSION}.tar.gz"
+          SHA256=$(curl -fsSL "$TARBALL_URL" | sha256sum | awk '{print $1}')
+
+          git clone "https://x-access-token:${GH_PAT}@github.com/argusgate/homebrew-tap.git" /tmp/homebrew-tap
+          cd /tmp/homebrew-tap
+
+          sed -i "s|url \".*\"|url \"${TARBALL_URL}\"|" Formula/argus.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/argus.rb
+
+          git config user.name "danultimate"
+          git config user.email "dan16.daniel@gmail.com"
+          git add Formula/argus.rb
+          git diff --staged --quiet || git commit -m "argus ${VERSION}"
+          git push
