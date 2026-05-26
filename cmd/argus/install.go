@@ -16,6 +16,8 @@ import (
 	"github.com/argusgate/argus/pkg/scanner"
 )
 
+var version = "dev"
+
 // installCmd is the top-level handler for `argus install <source>`.
 // source may be:
 //   - a local .tar.gz or .zip archive
@@ -241,6 +243,9 @@ func printReport(packageName string, report *scanner.Report) {
 	for _, f := range report.Findings {
 		if f.Severity == scanner.Warning {
 			fmt.Fprintf(os.Stderr, "  WARNING   %s:%d   %s\n", f.File, f.Line, f.Rule)
+			if f.Snippet != "" {
+				fmt.Fprintf(os.Stderr, "            > %s\n", f.Snippet)
+			}
 		}
 	}
 
@@ -281,6 +286,10 @@ func isTTY(f *os.File) bool {
 // ---------------------------------------------------------------------------
 
 func main() {
+	if len(os.Args) >= 2 && (os.Args[1] == "--version" || os.Args[1] == "-version") {
+		fmt.Println("argus", version)
+		return
+	}
 	if len(os.Args) < 3 || os.Args[1] != "install" {
 		fmt.Fprintln(os.Stderr, "usage: argus install <package>")
 		os.Exit(1)

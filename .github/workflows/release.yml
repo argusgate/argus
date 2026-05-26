@@ -23,11 +23,13 @@ jobs:
 
       - name: Build binaries
         run: |
-          GOOS=darwin  GOARCH=arm64  go build -o dist/argus-darwin-arm64   ./cmd/argus/
-          GOOS=darwin  GOARCH=amd64  go build -o dist/argus-darwin-amd64   ./cmd/argus/
-          GOOS=linux   GOARCH=amd64  go build -o dist/argus-linux-amd64    ./cmd/argus/
-          GOOS=linux   GOARCH=arm64  go build -o dist/argus-linux-arm64    ./cmd/argus/
-          GOOS=windows GOARCH=amd64  go build -o dist/argus-windows-amd64.exe ./cmd/argus/
+          VERSION=${GITHUB_REF_NAME}
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+          GOOS=darwin  GOARCH=arm64  go build -ldflags "$LDFLAGS" -o dist/argus-darwin-arm64   ./cmd/argus/
+          GOOS=darwin  GOARCH=amd64  go build -ldflags "$LDFLAGS" -o dist/argus-darwin-amd64   ./cmd/argus/
+          GOOS=linux   GOARCH=amd64  go build -ldflags "$LDFLAGS" -o dist/argus-linux-amd64    ./cmd/argus/
+          GOOS=linux   GOARCH=arm64  go build -ldflags "$LDFLAGS" -o dist/argus-linux-arm64    ./cmd/argus/
+          GOOS=windows GOARCH=amd64  go build -ldflags "$LDFLAGS" -o dist/argus-windows-amd64.exe ./cmd/argus/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
