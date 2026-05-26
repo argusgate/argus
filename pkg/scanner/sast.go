@@ -58,13 +58,16 @@ const maxFileBytes = 1 << 20 // 1 MiB
 // extensionScanners maps lowercase file extensions to their Scanner.
 // Extensions absent from this map are silently skipped.
 var extensionScanners = map[string]Scanner{
-	".go":   &GoASTScanner{},
-	".js":   &RegexScanner{rules: jsRules},
-	".ts":   &RegexScanner{rules: jsRules},
-	".mjs":  &RegexScanner{rules: jsRules},
-	".py":   &RegexScanner{rules: pyRules},
-	".sh":   &RegexScanner{rules: shellRules},
-	".bash": &RegexScanner{rules: shellRules},
+	".go":      &GoASTScanner{},
+	".js":      &RegexScanner{rules: jsRules},
+	".ts":      &RegexScanner{rules: jsRules},
+	".mjs":     &RegexScanner{rules: jsRules},
+	".py":      &RegexScanner{rules: pyRules},
+	".rb":      &RegexScanner{rules: rubyRules},
+	".rake":    &RegexScanner{rules: rubyRules},
+	".gemspec": &RegexScanner{rules: rubyRules},
+	".sh":      &RegexScanner{rules: shellRules},
+	".bash":    &RegexScanner{rules: shellRules},
 }
 
 // Scan walks dir, dispatches each recognised source file to the appropriate
@@ -357,6 +360,36 @@ var shellRules = []regexRule{
 	{re: must(`\beval\s+`), ruleName: "eval usage", severity: Critical},
 	{re: must(`\bexec\s+`), ruleName: "exec usage", severity: Critical},
 	{re: must(`(?i)(password|secret|api_key|token)\s*=\s*['"]?[^'"$\s]{8,}`), ruleName: "hardcoded secret", severity: Critical},
+	{re: must(`\b(?:\d{1,3}\.){3}\d{1,3}\b`), ruleName: "raw IP address", severity: Warning},
+}
+
+// rubyRules covers Ruby scripts, Rake tasks, and gemspecs.
+var rubyRules = []regexRule{
+	{re: must(`\beval\s*\(`), ruleName: "eval() usage", severity: Critical},
+	{re: must(`\bexec\s*\(`), ruleName: "exec() usage", severity: Critical},
+	{re: must(`\bsystem\s*\(`), ruleName: "system() usage", severity: Critical},
+	{re: must(`\bspawn\s*\(`), ruleName: "spawn() usage", severity: Critical},
+	{re: must(`IO\.popen\s*\(`), ruleName: "IO.popen usage", severity: Critical},
+	{re: must(`Open3\.(popen[23e]?|capture[23]|pipeline)\s*\(`), ruleName: "Open3 usage", severity: Critical},
+	{re: must(`Marshal\.(load|restore)\s*\(`), ruleName: "Marshal deserialisation", severity: Critical},
+	{
+		re:       must(`YAML\.load\s*\(`),
+		exclude:  must(`safe_load|permitted_classes`),
+		ruleName: "unsafe YAML.load() — use YAML.safe_load",
+		severity: Critical,
+	},
+	{re: must("(?i)(password|secret|api_key|token)\\s*=\\s*['\"][^'\"]{8,}"), ruleName: "hardcoded secret", severity: Critical},
+	{re: must(`AKIA[0-9A-Z]{16}`), ruleName: "AWS access key", severity: Critical},
+	{re: must(`ghp_[a-zA-Z0-9]{36}`), ruleName: "GitHub personal access token", severity: Critical},
+	{re: must(`sk-[a-zA-Z0-9]{32,}`), ruleName: "OpenAI API key", severity: Critical},
+	// Backtick strings in Ruby always execute a shell command.
+	{re: must("`[^`]+`"), ruleName: "backtick shell execution", severity: Critical},
+	// %x{...} and variants are the explicit shell-execution literal form.
+	{re: must(`%x\s*[{\[(<|/]`), ruleName: "shell execution via %x", severity: Critical},
+	// open("|cmd") pipes stdin/stdout to a shell command.
+	{re: must(`\bopen\s*\(\s*['"]?\s*\|`), ruleName: "open() pipe — shell execution", severity: Warning},
+	{re: must(`\bsend\s*\(`), ruleName: "dynamic method dispatch via send()", severity: Warning},
+	{re: must(`VERIFY_NONE`), ruleName: "SSL certificate verification disabled", severity: Warning},
 	{re: must(`\b(?:\d{1,3}\.){3}\d{1,3}\b`), ruleName: "raw IP address", severity: Warning},
 }
 

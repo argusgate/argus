@@ -165,6 +165,29 @@ Import aliases are resolved to their full import path, so `import ex "os/exec"; 
 | SSL verification disabled | `verify=False` | WARNING |
 | Raw IP address | Dotted-decimal address (public ranges only) | WARNING |
 
+### Ruby (`.rb`, `.rake`, `.gemspec`)
+
+| Rule | Pattern | Severity |
+|------|---------|----------|
+| eval() usage | `eval(` | CRITICAL |
+| exec() usage | `exec(` | CRITICAL |
+| system() usage | `system(` | CRITICAL |
+| spawn() usage | `spawn(` | CRITICAL |
+| IO.popen usage | `IO.popen(` | CRITICAL |
+| Open3 usage | `Open3.popen*/capture*/pipeline` | CRITICAL |
+| Marshal deserialisation | `Marshal.load(`, `Marshal.restore(` | CRITICAL |
+| Unsafe YAML.load() | `YAML.load(` without `safe_load`/`permitted_classes` | CRITICAL |
+| Backtick shell execution | `` `cmd` `` | CRITICAL |
+| Shell execution via %x | `%x{cmd}` and variants | CRITICAL |
+| Hardcoded secret | `password/secret/api_key/token = "..."` | CRITICAL |
+| AWS access key | `AKIA...` | CRITICAL |
+| GitHub PAT | `ghp_...` | CRITICAL |
+| OpenAI API key | `sk-...` | CRITICAL |
+| open() pipe | `open("\| cmd")` | WARNING |
+| Dynamic dispatch via send() | `send(` | WARNING |
+| SSL certificate verification disabled | `VERIFY_NONE` | WARNING |
+| Raw IP address | Dotted-decimal address (public ranges only) | WARNING |
+
 ### JavaScript / TypeScript
 
 | Rule | Pattern | Severity |
@@ -218,6 +241,7 @@ argus install <source>
       │               │           └── on parse failure → RegexScanner fallback
       │               ├── .py   → RegexScanner (pyRules)
       │               ├── .js / .ts / .mjs → RegexScanner (jsRules)
+      │               ├── .rb / .rake / .gemspec → RegexScanner (rubyRules)
       │               └── .sh / .bash      → RegexScanner (shellRules)
       │                           └── + high-entropy pass on every file
       │
