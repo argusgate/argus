@@ -143,6 +143,8 @@ Type `y` to proceed or press Enter to abort. In non-interactive environments (CI
 | syscall.Exec usage | `syscall.Exec`, `syscall.ForkExec` | CRITICAL |
 | plugin.Open usage | `plugin.Open` | CRITICAL |
 | unsafe package usage | Any selector on the `unsafe` package | CRITICAL |
+| net.Dial usage | `net.Dial`, `net.DialContext`, `net.DialTCP`, `net.DialUDP` | WARNING |
+| http outbound request | `http.Get`, `http.Post`, `http.PostForm`, `http.Head` | WARNING |
 
 Import aliases are resolved to their full import path, so `import ex "os/exec"; ex.Command(...)` is caught identically to `exec.Command(...)`.
 

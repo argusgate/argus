@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (v0.1.4)
+## v0.1.4
 
 - **Rust scanner** — `.rs` files: `unsafe` blocks, `Command::new` shell execution, hardcoded secrets, AWS/GitHub/OpenAI keys; FFI `extern "C"` blocks, `include_bytes!`/`include_str!` macros, raw IPs as warnings; `build.rs` always flagged as WARNING (Cargo compile-time execution)
 
