@@ -2,6 +2,7 @@
 
 ## Unreleased (v0.1.5)
 
+- **`scan` subcommand** — `argus install` renamed to `argus scan`; exit 0 on clean, exit 1 on blocked; composable with any package manager (`argus scan ./pkg && pip install ./pkg`)
 - **Entropy false-positive fix** — high-entropy string detection now restricted to assignment expressions (`x = "..."`) rather than all quoted strings; eliminates noise from base64-encoded assets, test fixtures, and function-call arguments
 
 ---

@@ -88,22 +88,29 @@ Critical findings fail the workflow (exit 1). Warnings are logged but non-blocki
 ## Usage
 
 ```
-argus install <source>
+argus scan <source>
 ```
 
 `<source>` may be:
 
 | Format | Example |
 |--------|---------|
-| Local directory | `argus install ./my-package` |
-| `.tar.gz` archive | `argus install package-1.2.3.tar.gz` |
-| `.zip` archive | `argus install package-1.2.3.zip` |
+| Local directory | `argus scan ./my-package` |
+| `.tar.gz` archive | `argus scan package-1.2.3.tar.gz` |
+| `.zip` archive | `argus scan package-1.2.3.zip` |
+
+Argus exits 0 when the scan is clean, 1 when critical findings are present. This makes it composable with any package manager:
+
+```bash
+argus scan ./my-package && pip install ./my-package
+argus scan package.tar.gz && npm install
+```
 
 ### Example — clean package
 
 ```
 argus: running SAST scan on ./my-package
-argus: installing ./my-package
+$
 ```
 
 ### Example — critical findings
@@ -125,10 +132,10 @@ ARGUS SAST — 3 critical finding(s) in suspicious-mcp-server.tar.gz
   WARNING   setup.py:6    raw IP address
   WARNING   src/utils.py:11   SSL certificate verification disabled
 
-Install anyway? [y/N]:
+Scan anyway? [y/N]:
 ```
 
-Type `y` to proceed or press Enter to abort. In non-interactive environments (CI/CD pipelines) the prompt is skipped and the process exits with code 1.
+Type `y` to override or press Enter to abort. In non-interactive environments (CI/CD pipelines) the prompt is skipped and the process exits with code 1.
 
 ---
 
@@ -245,14 +252,13 @@ Private and loopback IP ranges (RFC 1918, `127.x`, `10.x`, `192.168.x`, `172.16�
 ## Architecture
 
 ```
-argus install <source>
+argus scan <source>
       │
       ├── 1. prepareWorkDir — extract archive to temp dir, or use directory as-is
+      │       ├── expandNestedArchives — recursively unpacks .tar.gz/.zip (max 2 levels)
       │       └── sanitisePath — rejects zip-slip path traversal attempts
       │
-      ├── 2. Manifest scanner (placeholder — Stage 1)
-      │
-      ├── 3. scanner.Scan(dir)
+      ├── 2. scanner.Scan(dir)
       │       │
       │       └── fs.WalkDir — for each recognised source file:
       │               ├── .go   → GoASTScanner
@@ -263,15 +269,16 @@ argus install <source>
       │               ├── .rb / .rake / .gemspec → RegexScanner (rubyRules)
       │               ├── .rs              → RustScanner (rustRules + build.rs flag)
       │               └── .sh / .bash      → RegexScanner (shellRules)
-      │                           └── + high-entropy pass on every file
+      │                           └── + high-entropy assignment pass on every file
       │
-      ├── 4. printReport — CRITICAL findings to stderr with snippets
+      ├── 3. printReport — CRITICAL findings to stderr with snippets
       │
-      ├── 5. confirmInstall (if HasCritical)
-      │       ├── TTY     → prompt user
+      ├── 4. confirm (if HasCritical)
+      │       ├── TTY     → prompt user [y/N]
       │       └── non-TTY → auto-decline, exit 1
       │
-      └── 6. Hand off to package manager
+      └── 5. Exit 0 (clean) / Exit 1 (blocked)
+             caller is responsible for invoking the package manager
 ```
 
 ### Project structure
@@ -280,8 +287,8 @@ argus install <source>
 argus/
 ├── cmd/
 │   └── argus/
-│       ├── install.go       — CLI entry point, archive extraction, install flow
-│       └── install_test.go  — integration tests
+│       ├── scan.go          — CLI entry point, archive extraction, scan flow
+│       └── scan_test.go     — integration tests
 ├── pkg/
 │   └── scanner/
 │       ├── sast.go          — Scanner interface, GoASTScanner, RegexScanner, Scan()
@@ -357,13 +364,13 @@ GOOS=windows GOARCH=amd64  go build -o dist/argus-windows-amd64.exe ./cmd/argus/
 ```bash
 # Happy path — scan a large, clean Python project
 git clone https://github.com/pallets/flask /tmp/flask-test
-./argus install /tmp/flask-test
+./argus scan /tmp/flask-test
 
 # Malicious fixture — mimics real supply chain attack patterns
 mkdir -p /tmp/mal-pkg/src
 echo 'import subprocess; subprocess.Popen(["curl","203.0.113.1"])' > /tmp/mal-pkg/setup.py
 echo 'import pickle; pickle.loads(data)' > /tmp/mal-pkg/src/utils.py
-./argus install /tmp/mal-pkg
+./argus scan /tmp/mal-pkg
 ```
 
 ---

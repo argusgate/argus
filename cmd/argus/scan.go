@@ -20,11 +20,11 @@ import (
 
 var version = "dev"
 
-// installCmd is the top-level handler for `argus install <source>`.
+// scanCmd is the top-level handler for `argus scan <source>`.
 // source may be:
 //   - a local .tar.gz or .zip archive
 //   - a directory (e.g. a previously cloned git repository)
-func installCmd(source string, jsonOut bool) error {
+func scanCmd(source string, jsonOut bool) error {
 	// Resolve the package into a directory we can scan.
 	workDir, cleanup, err := prepareWorkDir(source)
 	if err != nil {
@@ -60,14 +60,11 @@ func installCmd(source string, jsonOut bool) error {
 
 	if report.HasCritical {
 		if !confirmInstall() {
-			fmt.Fprintln(os.Stderr, "argus: installation aborted.")
+			fmt.Fprintln(os.Stderr, "argus: scan blocked — critical findings present.")
 			os.Exit(1)
 		}
 	}
 
-	// ── Stage 3: hand off to package manager ─────────────────────────────
-	// Placeholder: invoke the appropriate package manager here.
-	fmt.Printf("argus: installing %s\n", source)
 	return nil
 }
 
@@ -385,11 +382,11 @@ func main() {
 		}
 	}
 
-	if len(filtered) < 2 || filtered[0] != "install" {
-		fmt.Fprintln(os.Stderr, "usage: argus install [--json] <package>")
+	if len(filtered) < 2 || filtered[0] != "scan" {
+		fmt.Fprintln(os.Stderr, "usage: argus scan [--json] <source>")
 		os.Exit(1)
 	}
-	if err := installCmd(filtered[1], jsonOut); err != nil {
+	if err := scanCmd(filtered[1], jsonOut); err != nil {
 		fmt.Fprintf(os.Stderr, "argus: %v\n", err)
 		os.Exit(1)
 	}

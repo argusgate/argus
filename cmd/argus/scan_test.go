@@ -72,7 +72,7 @@ func TestSanitisePath_Traversal(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// installCmd — integration
+// scanCmd — integration
 // ---------------------------------------------------------------------------
 
 func TestInstallCmd_NoFindings(t *testing.T) {
@@ -89,8 +89,8 @@ func TestInstallCmd_NoFindings(t *testing.T) {
 import "fmt"
 func main() { fmt.Println("clean") }`)
 
-	if err := installCmd(dir, false); err != nil {
-		t.Fatalf("installCmd returned unexpected error: %v", err)
+	if err := scanCmd(dir, false); err != nil {
+		t.Fatalf("scanCmd returned unexpected error: %v", err)
 	}
 }
 
@@ -102,7 +102,7 @@ func TestInstallCmd_WarningsOnly(t *testing.T) {
 		[]byte(`endpoint = "203.0.113.42"`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := installCmd(dir, false); err != nil {
+	if err := scanCmd(dir, false); err != nil {
 		t.Fatalf("warnings should not block installation; got error: %v", err)
 	}
 }
@@ -121,7 +121,7 @@ func TestInstallCmd_JSONOutput(t *testing.T) {
 	}
 	os.Stdout = w
 
-	installErr := installCmd(dir, true)
+	installErr := scanCmd(dir, true)
 
 	w.Close()
 	os.Stdout = orig
@@ -232,7 +232,7 @@ func TestExpandNestedArchives_Integration(t *testing.T) {
 
 // TestInstallCmd_CriticalNonTTY verifies that a critical finding in a
 // non-interactive (non-TTY) session causes os.Exit(1). We test this by
-// invoking installCmd in a subprocess via os.Exec would require a separate
+// invoking scanCmd in a subprocess via os.Exec would require a separate
 // binary build, so instead we validate the report directly and assert that
 // confirmInstall returns false when stdin is not a TTY.
 func TestInstallCmd_CriticalAutoDeclineNonTTY(t *testing.T) {
