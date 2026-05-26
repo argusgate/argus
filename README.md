@@ -26,7 +26,14 @@ Modern AI agent and MCP ecosystems encourage installing packages from the intern
 
 ## Installation
 
-### Pre-built binary (recommended)
+### Homebrew (recommended for macOS)
+
+```bash
+brew tap argusgate/tap
+brew install argus
+```
+
+### Pre-built binary
 
 Download the binary for your platform from the [releases page](https://github.com/argusgate/argus/releases) and place it on your `PATH`:
 
