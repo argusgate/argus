@@ -206,6 +206,7 @@ Import aliases are resolved to their full import path, so `import ex "os/exec"; 
 | GitHub PAT | `ghp_...` | CRITICAL |
 | OpenAI API key | `sk-...` | CRITICAL |
 | getattr indirection | `getattr(os/subprocess/sys/__builtins__, ...)` | CRITICAL |
+| getattr with concatenated attribute | `getattr(x, "ev"+"al")` | WARNING |
 | Hex/unicode escape obfuscation | 4+ consecutive `\xNN` escapes | CRITICAL |
 | Dynamic import | `importlib.import_module(` | WARNING |
 | SSL verification disabled | `verify=False` | WARNING |
@@ -418,10 +419,9 @@ The following evasion techniques are not caught by the current rule set. They ar
 
 | Technique | Example |
 |-----------|---------|
-| String concatenation execution | `getattr(__builtins__, "ev"+"al")(x)` |
 | Split secret across variables | `k1="sk-abc"; k2="xyz"` |
 
-Taint-flow analysis is required for reliable detection of these techniques.
+Taint-flow analysis is required for reliable detection of this technique.
 
 ---
 

@@ -339,6 +339,9 @@ var pyRules = []regexRule{
 	// getattr on dangerous modules is a common obfuscation technique to avoid
 	// writing os.system or subprocess.call directly in source.
 	{re: must(`getattr\s*\(\s*(os|subprocess|sys|__builtins__)\s*,`), ruleName: "getattr indirection on dangerous module", severity: Critical},
+	// getattr with a concatenated string argument suggests the attribute name is
+	// being split to evade static detection (e.g. getattr(x, "ev"+"al")).
+	{re: must(`getattr\s*\([^,]+,\s*['"][^'"]*['"]\s*\+`), ruleName: "getattr with concatenated attribute name (obfuscation)", severity: Warning},
 	// Four or more consecutive \x hex escapes strongly indicate an encoded
 	// function name (e.g. \x65\x76\x61\x6c encodes "eval").
 	{re: must(`(?:\\x[0-9a-fA-F]{2}){4,}`), ruleName: "hex/unicode escape obfuscation", severity: Critical},

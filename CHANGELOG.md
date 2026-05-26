@@ -4,6 +4,7 @@
 
 - **`getattr` indirection detection** — Python scanner now flags `getattr(os/subprocess/sys/__builtins__, ...)` as CRITICAL; common obfuscation technique used in real supply-chain attacks
 - **Hex/unicode escape obfuscation detection** — Python scanner now flags sequences of 4+ consecutive `\xNN` hex escapes as CRITICAL (e.g. `\x65\x76\x61\x6c` encodes `eval`)
+- **`getattr` with concatenated attribute name** — `getattr(x, "ev"+"al")` flagged as WARNING; partial heuristic covering split-string obfuscation without taint-flow analysis
 
 ---
 

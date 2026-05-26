@@ -157,6 +157,15 @@ func TestRegexScanner_HexEscapeObfuscation_Short_Ignored(t *testing.T) {
 	assertRegex(t, pyRules, "clean.py", `path = "\x2f\x74\x6d"`, 0, Warning)
 }
 
+func TestRegexScanner_GetattrConcatenation(t *testing.T) {
+	assertRegex(t, pyRules, "evil.py", `getattr(__builtins__, "ev"+"al")(x)`, 1, Critical)
+}
+
+func TestRegexScanner_GetattrConcatenation_UnknownModule(t *testing.T) {
+	// module not in the CRITICAL list — should still fire as WARNING via concat rule
+	assertRegex(t, pyRules, "evil.py", `getattr(m, "sys"+"tem")(cmd)`, 1, Warning)
+}
+
 // ---------------------------------------------------------------------------
 // RegexScanner — Ruby
 // ---------------------------------------------------------------------------
