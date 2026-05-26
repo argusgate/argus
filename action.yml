@@ -1,0 +1,39 @@
+name: 'Argus Security Scan'
+description: 'Scan a package directory or archive for malicious code before installation.'
+
+inputs:
+  path:
+    description: 'Path to the package directory or archive to scan.'
+    required: true
+  version:
+    description: 'Argus release version to use (e.g. v0.1.0). Defaults to latest.'
+    required: false
+    default: 'latest'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download Argus
+      shell: bash
+      run: |
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+        case "$ARCH" in
+          x86_64)  ARCH="amd64" ;;
+          aarch64) ARCH="arm64" ;;
+          arm64)   ARCH="arm64" ;;
+        esac
+
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ]; then
+          VERSION=$(curl -fsSL https://api.github.com/repos/argusgate/argus/releases/latest \
+            | grep '"tag_name"' | sed 's/.*"tag_name": "\(.*\)".*/\1/')
+        fi
+
+        curl -fsSL -o /usr/local/bin/argus \
+          "https://github.com/argusgate/argus/releases/download/${VERSION}/argus-${OS}-${ARCH}"
+        chmod +x /usr/local/bin/argus
+
+    - name: Run Argus scan
+      shell: bash
+      run: argus install "${{ inputs.path }}"

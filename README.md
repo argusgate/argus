@@ -63,6 +63,21 @@ go install github.com/argusgate/argus/cmd/argus@latest
 
 ---
 
+## GitHub Actions
+
+Add Argus to any workflow to scan a package before installation:
+
+```yaml
+- name: Scan package with Argus
+  uses: argusgate/argus@v0.1.0
+  with:
+    path: ./my-package
+```
+
+Critical findings fail the workflow (exit 1). Warnings are logged but non-blocking.
+
+---
+
 ## Usage
 
 ```
