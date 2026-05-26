@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased (v0.1.3)
+## Unreleased (v0.1.4)
+
+- **Rust scanner** — `.rs` files: `unsafe` blocks, `Command::new` shell execution, hardcoded secrets, AWS/GitHub/OpenAI keys; FFI `extern "C"` blocks, `include_bytes!`/`include_str!` macros, raw IPs as warnings; `build.rs` always flagged as WARNING (Cargo compile-time execution)
+
+---
+
+## v0.1.3
 
 - **Ruby scanner** — `.rb`, `.rake`, `.gemspec`: `eval`, `exec`, `system`, `spawn`, `IO.popen`, `Open3`, `Marshal.load`, unsafe `YAML.load`, backtick and `%x` shell execution, hardcoded secrets, AWS/GitHub/OpenAI keys; `open()` pipe, `send()`, `VERIFY_NONE` as warnings
 - **Nested archive scanning** — `.tar.gz` and `.zip` files embedded inside a package are automatically extracted (up to 2 levels deep) and scanned; findings reference the archive path (e.g. `vendor.zip!/evil.py`)

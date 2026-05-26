@@ -188,6 +188,23 @@ Import aliases are resolved to their full import path, so `import ex "os/exec"; 
 | SSL certificate verification disabled | `VERIFY_NONE` | WARNING |
 | Raw IP address | Dotted-decimal address (public ranges only) | WARNING |
 
+### Rust (`.rs`)
+
+| Rule | Pattern | Severity |
+|------|---------|----------|
+| unsafe block | `unsafe {` | CRITICAL |
+| process::Command usage | `Command::new(` | CRITICAL |
+| Hardcoded secret | `password/secret/api_key/token = "..."` | CRITICAL |
+| AWS access key | `AKIA...` | CRITICAL |
+| GitHub PAT | `ghp_...` | CRITICAL |
+| OpenAI API key | `sk-...` | CRITICAL |
+| build.rs present | any `build.rs` file (Cargo compile-time execution) | WARNING |
+| FFI extern block | `extern "C" {` | WARNING |
+| File embedding macro | `include_bytes!(`, `include_str!(` | WARNING |
+| Raw IP address | Dotted-decimal address (public ranges only) | WARNING |
+
+`build.rs` is flagged unconditionally — Cargo executes it at compile time before installation completes, making it a compile-time code-execution vector regardless of content.
+
 ### JavaScript / TypeScript
 
 | Rule | Pattern | Severity |
@@ -242,6 +259,7 @@ argus install <source>
       │               ├── .py   → RegexScanner (pyRules)
       │               ├── .js / .ts / .mjs → RegexScanner (jsRules)
       │               ├── .rb / .rake / .gemspec → RegexScanner (rubyRules)
+      │               ├── .rs              → RustScanner (rustRules + build.rs flag)
       │               └── .sh / .bash      → RegexScanner (shellRules)
       │                           └── + high-entropy pass on every file
       │
@@ -358,9 +376,7 @@ The following evasion techniques are not caught by the current rule set. They ar
 | `getattr` indirection | `getattr(os, 'sys'+'tem')(cmd)` |
 | Unicode escape obfuscation | `\x65\x76\x61\x6c(payload)` |
 | Split secret across variables | `k1="sk-abc"; k2="xyz"` |
-| Nested archives | `.tar.gz` inside `.tar.gz` |
-
-Taint-flow analysis is required for reliable detection of the first four. Nested archive scanning is planned for V2.
+Taint-flow analysis is required for reliable detection of these techniques.
 
 ---
 
