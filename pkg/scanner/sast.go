@@ -465,9 +465,11 @@ const (
 	minStringLength  = 20
 )
 
-// quotedString captures the inner content of single- or double-quoted literals
-// long enough to warrant entropy analysis.
-var quotedString = regexp.MustCompile(`['"]([^'"]{` + fmt.Sprintf("%d", minStringLength) + `,})['"]`)
+// quotedString matches quoted string literals that appear on the right-hand
+// side of an assignment (=). Restricting to assignments eliminates the bulk
+// of false positives from base64-encoded assets, test fixtures, and other
+// long literals that are not secret values.
+var quotedString = regexp.MustCompile(`=\s*['"]([^'"]{` + fmt.Sprintf("%d", minStringLength) + `,})['"]`)
 
 // shannonEntropy returns the Shannon entropy (bits per character) of s.
 func shannonEntropy(s string) float64 {

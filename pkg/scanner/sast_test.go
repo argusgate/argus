@@ -324,6 +324,22 @@ func TestRegexScanner_HighEntropy(t *testing.T) {
 	}
 }
 
+func TestRegexScanner_HighEntropyInFuncCall_Ignored(t *testing.T) {
+	// High-entropy string passed as a function argument should NOT fire —
+	// base64 icons, test fixtures, and similar literals are common here.
+	src := `doSomething("xK9mN3pQ7rT1vW5yZ2bD6hJ0lF4nR8tVwXzAcEgIkMoSuYa")`
+	sc := &RegexScanner{rules: pyRules}
+	findings, err := sc.Scan("util.py", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, f := range findings {
+		if f.Rule == "high-entropy string (possible obfuscated payload or embedded secret)" {
+			t.Error("high-entropy string in function call should not fire; got finding")
+		}
+	}
+}
+
 func TestShannonEntropy_LowEntropy(t *testing.T) {
 	// A repetitive string should have low entropy and not trigger the rule.
 	if shannonEntropy("aaaaaaaaaaaaaaaaaaaaaaaaaaaa") >= entropyThreshold {

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (v0.1.5)
+
+- **Entropy false-positive fix** — high-entropy string detection now restricted to assignment expressions (`x = "..."`) rather than all quoted strings; eliminates noise from base64-encoded assets, test fixtures, and function-call arguments
+
+---
+
 ## v0.1.4
 
 - **Rust scanner** — `.rs` files: `unsafe` blocks, `Command::new` shell execution, hardcoded secrets, AWS/GitHub/OpenAI keys; FFI `extern "C"` blocks, `include_bytes!`/`include_str!` macros, raw IPs as warnings; `build.rs` always flagged as WARNING (Cargo compile-time execution)

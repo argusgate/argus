@@ -236,7 +236,7 @@ Import aliases are resolved to their full import path, so `import ex "os/exec"; 
 
 | Rule | Detection | Severity |
 |------|-----------|----------|
-| High-entropy string | Shannon entropy ≥ 4.5 on quoted strings longer than 20 characters | WARNING |
+| High-entropy string | Shannon entropy ≥ 4.5 on assigned string literals longer than 20 characters (`x = "..."`) | WARNING |
 
 Private and loopback IP ranges (RFC 1918, `127.x`, `10.x`, `192.168.x`, `172.16–31.x`) are excluded from the raw IP rule.
 
