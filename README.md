@@ -331,8 +331,6 @@ argus/
 │   └── scanner/
 │       ├── sast.go          — Scanner interface, GoASTScanner, RegexScanner, Scan()
 │       └── sast_test.go     — unit tests for all rules and edge cases
-├── docs/
-│   └── sast-design.md       — full design document including decision log
 ├── go.mod
 ├── LICENSE
 └── README.md

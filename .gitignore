@@ -14,3 +14,6 @@ coverage.html
 
 # macOS
 .DS_Store
+
+# Private docs
+docs/
