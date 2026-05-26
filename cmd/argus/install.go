@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,7 +108,49 @@ func prepareWorkDir(source string) (dir string, cleanup func(), err error) {
 		cleanup()
 		return "", nil, err
 	}
+	if err = expandNestedArchives(tmp, 0); err != nil {
+		cleanup()
+		return "", nil, err
+	}
 	return tmp, cleanup, nil
+}
+
+// maxNestDepth caps how many layers of nested archives are expanded to guard
+// against archive bombs constructed from recursively embedded archives.
+const maxNestDepth = 2
+
+// expandNestedArchives walks dir and extracts any archive files it finds,
+// placing the contents in a sibling directory named "<archive>!" so that
+// scanner findings reference the archive name in their file path.
+// Expansion is limited to maxNestDepth levels.
+func expandNestedArchives(dir string, depth int) error {
+	if depth >= maxNestDepth {
+		return nil
+	}
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil || d.IsDir() {
+			return nil
+		}
+		lp := strings.ToLower(path)
+		var extractFn func(string, string) error
+		switch {
+		case strings.HasSuffix(lp, ".tar.gz") || strings.HasSuffix(lp, ".tgz"):
+			extractFn = extractTarGz
+		case strings.HasSuffix(lp, ".zip"):
+			extractFn = extractZip
+		default:
+			return nil
+		}
+		subDir := path + "!"
+		if mkErr := os.MkdirAll(subDir, 0o755); mkErr != nil {
+			return nil // skip; do not abort the whole walk
+		}
+		if exErr := extractFn(path, subDir); exErr != nil {
+			os.RemoveAll(subDir)
+			return nil // malformed nested archive — skip silently
+		}
+		return expandNestedArchives(subDir, depth+1)
+	})
 }
 
 // extractTarGz unpacks a .tar.gz archive into dst.
