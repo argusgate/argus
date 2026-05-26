@@ -1,0 +1,16 @@
+# Binaries
+/argus
+dist/
+*.exe
+
+# Test cache and coverage
+*.test
+*.out
+coverage.html
+
+# Temp files
+*.tar.gz
+*.zip
+
+# macOS
+.DS_Store
