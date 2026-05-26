@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"bufio"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -22,7 +23,7 @@ var version = "dev"
 // source may be:
 //   - a local .tar.gz or .zip archive
 //   - a directory (e.g. a previously cloned git repository)
-func installCmd(source string) error {
+func installCmd(source string, jsonOut bool) error {
 	// Resolve the package into a directory we can scan.
 	workDir, cleanup, err := prepareWorkDir(source)
 	if err != nil {
@@ -35,11 +36,21 @@ func installCmd(source string) error {
 	// if err := manifest.Scan(workDir); err != nil { return err }
 
 	// ── Stage 2: SAST scan ───────────────────────────────────────────────
-	fmt.Fprintf(os.Stderr, "argus: running SAST scan on %s\n", source)
+	if !jsonOut {
+		fmt.Fprintf(os.Stderr, "argus: running SAST scan on %s\n", source)
+	}
 
 	report, err := scanner.Scan(workDir)
 	if err != nil {
 		return fmt.Errorf("SAST scan failed: %w", err)
+	}
+
+	if jsonOut {
+		printReportJSON(source, report)
+		if report.HasCritical {
+			os.Exit(1)
+		}
+		return nil
 	}
 
 	if len(report.Findings) > 0 {
@@ -254,6 +265,34 @@ func printReport(packageName string, report *scanner.Report) {
 	}
 }
 
+// printReportJSON writes the SAST findings to stdout as a JSON object.
+// When --json is set, no other output is written to stdout so the caller can
+// pipe the result directly into jq or another tool.
+func printReportJSON(packageName string, report *scanner.Report) {
+	type jFinding struct {
+		File     string          `json:"file"`
+		Line     int             `json:"line"`
+		Rule     string          `json:"rule"`
+		Snippet  string          `json:"snippet,omitempty"`
+		Severity scanner.Severity `json:"severity"`
+	}
+	type jReport struct {
+		Package     string     `json:"package"`
+		HasCritical bool       `json:"has_critical"`
+		Findings    []jFinding `json:"findings"`
+	}
+
+	findings := make([]jFinding, len(report.Findings))
+	for i, f := range report.Findings {
+		findings[i] = jFinding{File: f.File, Line: f.Line, Rule: f.Rule, Snippet: f.Snippet, Severity: f.Severity}
+	}
+
+	out := jReport{Package: packageName, HasCritical: report.HasCritical, Findings: findings}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(out)
+}
+
 // confirmInstall prompts the user for explicit consent when critical findings
 // are present. In non-interactive environments (no TTY) it returns false
 // automatically, so CI pipelines never silently install flagged packages.
@@ -286,15 +325,28 @@ func isTTY(f *os.File) bool {
 // ---------------------------------------------------------------------------
 
 func main() {
-	if len(os.Args) >= 2 && (os.Args[1] == "--version" || os.Args[1] == "-version") {
+	args := os.Args[1:]
+
+	if len(args) >= 1 && (args[0] == "--version" || args[0] == "-version") {
 		fmt.Println("argus", version)
 		return
 	}
-	if len(os.Args) < 3 || os.Args[1] != "install" {
-		fmt.Fprintln(os.Stderr, "usage: argus install <package>")
+
+	jsonOut := false
+	filtered := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "--json" || a == "-json" {
+			jsonOut = true
+		} else {
+			filtered = append(filtered, a)
+		}
+	}
+
+	if len(filtered) < 2 || filtered[0] != "install" {
+		fmt.Fprintln(os.Stderr, "usage: argus install [--json] <package>")
 		os.Exit(1)
 	}
-	if err := installCmd(os.Args[2]); err != nil {
+	if err := installCmd(filtered[1], jsonOut); err != nil {
 		fmt.Fprintf(os.Stderr, "argus: %v\n", err)
 		os.Exit(1)
 	}

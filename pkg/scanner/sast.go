@@ -146,6 +146,14 @@ var goRules = []goASTRule{
 	{"syscall", "Exec", "syscall.Exec usage", Critical},
 	{"syscall", "ForkExec", "syscall.Exec usage", Critical},
 	{"plugin", "Open", "plugin.Open usage (dynamic loading)", Critical},
+	{"net", "Dial", "net.Dial usage (outbound connection)", Warning},
+	{"net", "DialContext", "net.Dial usage (outbound connection)", Warning},
+	{"net", "DialTCP", "net.Dial usage (outbound connection)", Warning},
+	{"net", "DialUDP", "net.Dial usage (outbound connection)", Warning},
+	{"net/http", "Get", "http.Get usage (outbound request)", Warning},
+	{"net/http", "Post", "http.Post usage (outbound request)", Warning},
+	{"net/http", "PostForm", "http.Post usage (outbound request)", Warning},
+	{"net/http", "Head", "http.Head usage (outbound request)", Warning},
 }
 
 // Scan parses the Go source file and walks the AST looking for dangerous call

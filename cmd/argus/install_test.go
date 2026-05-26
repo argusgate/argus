@@ -85,7 +85,7 @@ func TestInstallCmd_NoFindings(t *testing.T) {
 import "fmt"
 func main() { fmt.Println("clean") }`)
 
-	if err := installCmd(dir); err != nil {
+	if err := installCmd(dir, false); err != nil {
 		t.Fatalf("installCmd returned unexpected error: %v", err)
 	}
 }
@@ -98,8 +98,43 @@ func TestInstallCmd_WarningsOnly(t *testing.T) {
 		[]byte(`endpoint = "203.0.113.42"`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := installCmd(dir); err != nil {
+	if err := installCmd(dir, false); err != nil {
 		t.Fatalf("warnings should not block installation; got error: %v", err)
+	}
+}
+
+func TestInstallCmd_JSONOutput(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.py"),
+		[]byte(`endpoint = "203.0.113.42"`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Redirect stdout so we can capture the JSON.
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	installErr := installCmd(dir, true)
+
+	w.Close()
+	os.Stdout = orig
+
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	r.Close()
+	out := string(buf[:n])
+
+	if installErr != nil {
+		t.Fatalf("unexpected error: %v", installErr)
+	}
+	if out == "" {
+		t.Fatal("expected JSON output on stdout; got nothing")
+	}
+	if out[0] != '{' {
+		t.Errorf("expected JSON object; got: %.80s", out)
 	}
 }
 
