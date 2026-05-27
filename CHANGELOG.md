@@ -1,13 +1,6 @@
 # Changelog
 
-## Unreleased
-
-- **Licence change: AGPL v3 → Apache 2.0** — the CLI is and will remain free; Apache 2.0 removes the copyleft friction that blocked enterprise adoption
-- **Contributor License Agreement** — all contributors must sign the CLA before a PR is merged; required to preserve re-licensing rights for future commercial products (Argus Cloud)
-
----
-
-## v0.1.6
+## Unreleased (v0.1.6)
 
 - **`getattr` indirection detection** — Python scanner now flags `getattr(os/subprocess/sys/__builtins__, ...)` as CRITICAL; common obfuscation technique used in real supply-chain attacks
 - **Hex/unicode escape obfuscation detection** — Python scanner now flags sequences of 4+ consecutive `\xNN` hex escapes as CRITICAL (e.g. `\x65\x76\x61\x6c` encodes `eval`)

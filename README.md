@@ -454,18 +454,16 @@ Taint-flow analysis is required for reliable detection of this technique.
 
 ## Contributing
 
-Argus is open source under the [Apache 2.0 licence](LICENSE) — free to use, embed, and distribute.
+Argus is open source under the AGPL v3 licence. Commercial use requires a separate licence — see [LICENSE](LICENSE).
 
-Pull requests are welcome. Please include tests for any new rule or scanner behaviour and run `go test ./...` before submitting.
-
-All contributors must sign the [Contributor License Agreement](.github/CLA.md) before a PR can be merged. The CLA bot will prompt you automatically on your first PR — reply with the phrase shown to sign.
+Pull requests are welcome. Please include tests for any new rule or scanner behaviour. Run `go test ./...` before submitting.
 
 ---
 
 ## Licence
 
-Copyright 2026 Argus
+Copyright (C) 2026 Argus
 
-Licensed under the Apache License, Version 2.0. You may obtain a copy of the licence at <http://www.apache.org/licenses/LICENSE-2.0>.
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public Licence as published by the Free Software Foundation, either version 3 of the Licence, or (at your option) any later version.
 
-The CLI is and will remain free. Commercial products built on Argus (such as Argus Cloud) are offered separately.
+For commercial use — including embedding Argus in proprietary products or offering it as a hosted service — a commercial licence is required. Open an issue or start a discussion in this repository.
