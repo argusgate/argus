@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,7 +165,7 @@ func TestExpandNestedArchives_Zip(t *testing.T) {
 	zw.Close()
 	zf.Close()
 
-	if err := expandNestedArchives(dir, 0); err != nil {
+	if err := expandNestedArchives(dir, 0, newExtractLimits()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -187,7 +188,7 @@ func TestExpandNestedArchives_DepthLimit(t *testing.T) {
 	zw.Close()
 	zf.Close()
 
-	if err := expandNestedArchives(dir, maxNestDepth); err != nil {
+	if err := expandNestedArchives(dir, maxNestDepth, newExtractLimits()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, err := os.Stat(zipPath + "!"); err == nil {
@@ -207,7 +208,7 @@ func TestExpandNestedArchives_Integration(t *testing.T) {
 	zw.Close()
 	zf.Close()
 
-	if err := expandNestedArchives(dir, 0); err != nil {
+	if err := expandNestedArchives(dir, 0, newExtractLimits()); err != nil {
 		t.Fatalf("expandNestedArchives error: %v", err)
 	}
 
@@ -227,6 +228,92 @@ func TestExpandNestedArchives_Integration(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected finding with 'vendor.zip!' in path; findings: %+v", report.Findings)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// extractLimits — resource cap enforcement
+// ---------------------------------------------------------------------------
+
+func TestExtractLimits_FileCountExceeded(t *testing.T) {
+	// Build a zip with 3 files and enforce a limit of 2.
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "many.zip")
+	zf, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(zf)
+	for i := 0; i < 3; i++ {
+		entry, _ := zw.Create(fmt.Sprintf("file%d.txt", i))
+		entry.Write([]byte("content"))
+	}
+	zw.Close()
+	zf.Close()
+
+	limits := &extractLimits{maxBytes: 500 << 20, maxFiles: 2}
+	err = extractZip(zipPath, t.TempDir(), limits)
+	if err == nil {
+		t.Fatal("expected file-count limit error; got nil")
+	}
+	if !strings.Contains(err.Error(), "too many files") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestExtractLimits_TotalSizeExceeded(t *testing.T) {
+	// Build a zip with 3 × 10-byte files and enforce a 20-byte session cap.
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "big.zip")
+	zf, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(zf)
+	for i := 0; i < 3; i++ {
+		entry, _ := zw.Create(fmt.Sprintf("file%d.txt", i))
+		entry.Write([]byte("0123456789")) // 10 bytes each
+	}
+	zw.Close()
+	zf.Close()
+
+	limits := &extractLimits{maxBytes: 20, maxFiles: 50_000}
+	err = extractZip(zipPath, t.TempDir(), limits)
+	if err == nil {
+		t.Fatal("expected total-size limit error; got nil")
+	}
+	if !strings.Contains(err.Error(), "session limit") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestExtractLimits_SharedAcrossNestedArchives(t *testing.T) {
+	// Two nested zips each containing 2 files; session cap is 3 — second archive
+	// should push the count over the limit.
+	outer := t.TempDir()
+
+	buildZip := func(path string, n int) {
+		t.Helper()
+		zf, _ := os.Create(path)
+		zw := zip.NewWriter(zf)
+		for i := 0; i < n; i++ {
+			entry, _ := zw.Create(fmt.Sprintf("f%d.txt", i))
+			entry.Write([]byte("x"))
+		}
+		zw.Close()
+		zf.Close()
+	}
+
+	buildZip(filepath.Join(outer, "a.zip"), 2)
+	buildZip(filepath.Join(outer, "b.zip"), 2)
+
+	limits := &extractLimits{maxBytes: 500 << 20, maxFiles: 3}
+	_ = expandNestedArchives(outer, 0, limits)
+
+	// The limiter should have hit the cap and stopped; total file count must
+	// not exceed maxFiles+1 (the +1 is the file that triggered the error).
+	if limits.fileCount > limits.maxFiles+1 {
+		t.Errorf("file count %d exceeded cap %d by more than 1", limits.fileCount, limits.maxFiles)
 	}
 }
 

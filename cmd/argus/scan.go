@@ -92,11 +92,12 @@ func prepareWorkDir(source string) (dir string, cleanup func(), err error) {
 	}
 	cleanup = func() { os.RemoveAll(tmp) }
 
+	limits := newExtractLimits()
 	switch {
 	case strings.HasSuffix(source, ".tar.gz") || strings.HasSuffix(source, ".tgz"):
-		err = extractTarGz(source, tmp)
+		err = extractTarGz(source, tmp, limits)
 	case strings.HasSuffix(source, ".zip"):
-		err = extractZip(source, tmp)
+		err = extractZip(source, tmp, limits)
 	default:
 		err = fmt.Errorf("unsupported archive format: %s", filepath.Ext(source))
 	}
@@ -105,7 +106,7 @@ func prepareWorkDir(source string) (dir string, cleanup func(), err error) {
 		cleanup()
 		return "", nil, err
 	}
-	if err = expandNestedArchives(tmp, 0); err != nil {
+	if err = expandNestedArchives(tmp, 0, limits); err != nil {
 		cleanup()
 		return "", nil, err
 	}
@@ -116,11 +117,51 @@ func prepareWorkDir(source string) (dir string, cleanup func(), err error) {
 // against archive bombs constructed from recursively embedded archives.
 const maxNestDepth = 2
 
+// extractLimits tracks cumulative resource usage across an entire extraction
+// session. All archive operations within a single prepareWorkDir call share
+// one instance so that the caps apply globally, not per-archive.
+type extractLimits struct {
+	bytesWritten int64
+	fileCount    int
+	maxBytes     int64 // ceiling on total decompressed bytes
+	maxFiles     int   // ceiling on total number of extracted files
+}
+
+// newExtractLimits returns an extractLimits configured with production-safe
+// defaults: 500 MiB total decompressed size and 50,000 files.
+func newExtractLimits() *extractLimits {
+	return &extractLimits{
+		maxBytes: 500 << 20, // 500 MiB
+		maxFiles: 50_000,
+	}
+}
+
+// addFile records one more extracted file and returns an error if the session
+// file-count ceiling has been exceeded.
+func (l *extractLimits) addFile() error {
+	l.fileCount++
+	if l.fileCount > l.maxFiles {
+		return fmt.Errorf("archive contains too many files (session limit: %d)", l.maxFiles)
+	}
+	return nil
+}
+
+// addBytes records n additional decompressed bytes and returns an error if the
+// session byte ceiling has been exceeded.
+func (l *extractLimits) addBytes(n int64) error {
+	l.bytesWritten += n
+	if l.bytesWritten > l.maxBytes {
+		return fmt.Errorf("total extraction size exceeded %d MiB session limit", l.maxBytes>>20)
+	}
+	return nil
+}
+
 // expandNestedArchives walks dir and extracts any archive files it finds,
 // placing the contents in a sibling directory named "<archive>!" so that
 // scanner findings reference the archive name in their file path.
-// Expansion is limited to maxNestDepth levels.
-func expandNestedArchives(dir string, depth int) error {
+// Expansion is limited to maxNestDepth levels. The shared limits instance
+// enforces cumulative resource caps across all nested extractions.
+func expandNestedArchives(dir string, depth int, limits *extractLimits) error {
 	if depth >= maxNestDepth {
 		return nil
 	}
@@ -129,7 +170,7 @@ func expandNestedArchives(dir string, depth int) error {
 			return nil
 		}
 		lp := strings.ToLower(path)
-		var extractFn func(string, string) error
+		var extractFn func(string, string, *extractLimits) error
 		switch {
 		case strings.HasSuffix(lp, ".tar.gz") || strings.HasSuffix(lp, ".tgz"):
 			extractFn = extractTarGz
@@ -142,16 +183,17 @@ func expandNestedArchives(dir string, depth int) error {
 		if mkErr := os.MkdirAll(subDir, 0o755); mkErr != nil {
 			return nil // skip; do not abort the whole walk
 		}
-		if exErr := extractFn(path, subDir); exErr != nil {
+		if exErr := extractFn(path, subDir, limits); exErr != nil {
 			os.RemoveAll(subDir)
-			return nil // malformed nested archive — skip silently
+			return nil // malformed or over-limit nested archive — skip silently
 		}
-		return expandNestedArchives(subDir, depth+1)
+		return expandNestedArchives(subDir, depth+1, limits)
 	})
 }
 
-// extractTarGz unpacks a .tar.gz archive into dst.
-func extractTarGz(src, dst string) error {
+// extractTarGz unpacks a .tar.gz archive into dst, updating limits with each
+// extracted file. Returns an error if either the per-file or session cap is hit.
+func extractTarGz(src, dst string, limits *extractLimits) error {
 	f, err := os.Open(src)
 	if err != nil {
 		return err
@@ -185,10 +227,13 @@ func extractTarGz(src, dst string) error {
 				return err
 			}
 		case tar.TypeReg:
+			if err := limits.addFile(); err != nil {
+				return err
+			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
-			if err := writeFile(target, tr, hdr.FileInfo().Mode()); err != nil {
+			if err := writeFile(target, tr, hdr.FileInfo().Mode(), limits); err != nil {
 				return err
 			}
 		}
@@ -196,8 +241,9 @@ func extractTarGz(src, dst string) error {
 	return nil
 }
 
-// extractZip unpacks a .zip archive into dst.
-func extractZip(src, dst string) error {
+// extractZip unpacks a .zip archive into dst, updating limits with each
+// extracted file. Returns an error if either the per-file or session cap is hit.
+func extractZip(src, dst string, limits *extractLimits) error {
 	r, err := zip.OpenReader(src)
 	if err != nil {
 		return fmt.Errorf("opening zip: %w", err)
@@ -217,6 +263,10 @@ func extractZip(src, dst string) error {
 			continue
 		}
 
+		if err := limits.addFile(); err != nil {
+			return err
+		}
+
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
@@ -225,7 +275,7 @@ func extractZip(src, dst string) error {
 		if err != nil {
 			return err
 		}
-		writeErr := writeFile(target, rc, f.Mode())
+		writeErr := writeFile(target, rc, f.Mode(), limits)
 		rc.Close()
 		if writeErr != nil {
 			return writeErr
@@ -252,17 +302,21 @@ func sanitisePath(base, entryName string) (string, error) {
 const maxExtractBytes = 100 << 20 // 100 MiB
 
 // writeFile writes r into a new file at path with the given permissions.
-// It caps the write at maxExtractBytes and strips setuid/setgid/sticky bits
-// from the archive-supplied mode to prevent privilege-escalation via crafted
-// archives.
-func writeFile(path string, r io.Reader, mode os.FileMode) error {
+// It caps the write at maxExtractBytes per file and strips setuid/setgid/sticky
+// bits from the archive-supplied mode to prevent privilege-escalation via
+// crafted archives. The session limits are updated with the bytes written;
+// an error is returned if the session total would be exceeded.
+func writeFile(path string, r io.Reader, mode os.FileMode, limits *extractLimits) error {
 	out, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode&0o666)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
-	_, err = io.Copy(out, io.LimitReader(r, maxExtractBytes))
-	return err
+	n, err := io.Copy(out, io.LimitReader(r, maxExtractBytes))
+	if err != nil {
+		return err
+	}
+	return limits.addBytes(n)
 }
 
 // ---------------------------------------------------------------------------
