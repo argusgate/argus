@@ -1,0 +1,41 @@
+name: CLA
+
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+  issue_comment:
+    types: [created]
+
+jobs:
+  cla-check:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request_target' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA'))
+    steps:
+      - name: CLA Assistant
+        uses: contributor-assistant/github-action@v2.4.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Personal access token with repo scope — add as a repository secret
+          # named PERSONAL_ACCESS_TOKEN. Required to write the signatures file.
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        with:
+          path-to-signatures: .github/cla-signatures.json
+          path-to-document: https://github.com/argusgate/argus/blob/main/.github/CLA.md
+          branch: main
+          allowlist: bot*
+          create-file-commit-message: 'chore: record CLA signature'
+          signed-commit-message: |
+            $contributorName has signed the CLA in $owner/$repo#$pullRequestNo
+          custom-notsigned-prcomment: |
+            Thank you for your contribution! Before we can merge this PR, please sign our [Contributor License Agreement](.github/CLA.md).
+
+            Reply with the following comment to sign:
+
+            ```
+            I have read the CLA Document and I hereby sign the CLA
+            ```
+          custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
