@@ -73,9 +73,11 @@ var extensionScanners = map[string]Scanner{
 
 // Scan walks dir, dispatches each recognised source file to the appropriate
 // Scanner, and returns an aggregated Report. The walk continues even when
-// individual files cannot be read or parsed.
+// individual files cannot be read or parsed. An optional .argusignore file
+// in dir may list glob patterns for files to skip entirely.
 func Scan(dir string) (*Report, error) {
 	report := &Report{PackageDir: dir}
+	ignorePatterns := loadIgnorePatterns(dir)
 
 	err := fs.WalkDir(os.DirFS(dir), ".", func(relPath string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -83,6 +85,9 @@ func Scan(dir string) (*Report, error) {
 		}
 		if d.IsDir() || !d.Type().IsRegular() {
 			return nil
+		}
+		if matchesIgnore(relPath, ignorePatterns) {
+			return nil // explicitly suppressed by .argusignore
 		}
 
 		info, err := d.Info()
@@ -233,7 +238,15 @@ func (g *GoASTScanner) Scan(path string, content []byte) ([]Finding, error) {
 		return true
 	})
 
-	return findings, nil
+	// Filter out any findings on lines that carry an argus-ignore directive.
+	var kept []Finding
+	for _, f := range findings {
+		if f.Line > 0 && f.Line <= len(lines) && lineIsIgnored(lines[f.Line-1]) {
+			continue
+		}
+		kept = append(kept, f)
+	}
+	return kept, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -257,11 +270,15 @@ type RegexScanner struct {
 
 // Scan checks each line of content against the receiver's rule set and returns
 // all matches. High-entropy string detection runs as a second independent pass.
+// Lines containing an argus-ignore directive are skipped entirely.
 func (r *RegexScanner) Scan(path string, content []byte) ([]Finding, error) {
 	lines := strings.Split(string(content), "\n")
 	var findings []Finding
 
 	for lineNum, line := range lines {
+		if lineIsIgnored(line) {
+			continue // argus-ignore directive present — suppress all checks for this line
+		}
 		trimmed := strings.TrimSpace(line)
 
 		for _, rule := range r.rules {
@@ -470,8 +487,14 @@ func allPrivate(line string) bool {
 // ---------------------------------------------------------------------------
 
 const (
-	entropyThreshold = 4.5
-	minStringLength  = 20
+	// entropyThreshold is the minimum Shannon entropy (bits per character) that
+	// triggers the high-entropy string rule. Raised from 4.5 to 4.8 to reduce
+	// false positives from base64-encoded assets and other structured data.
+	entropyThreshold = 4.8
+	// minStringLength is the minimum quoted string length subject to entropy
+	// analysis. Raised from 20 to 32 to focus on credential-length strings and
+	// reduce noise from short, structured literals.
+	minStringLength = 32
 )
 
 // quotedString matches quoted string literals that appear on the right-hand
@@ -509,13 +532,33 @@ func isPrintableASCII(s string) bool {
 	return true
 }
 
+// isLikelyHash returns true when s consists entirely of hexadecimal digits and
+// hyphens, making it a plausible content hash, UUID, or other structured value
+// rather than an embedded secret. Such strings are excluded from entropy checks
+// even when they exceed the entropy threshold.
+func isLikelyHash(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
 // highEntropyFinding checks a single source line for high-entropy quoted
-// strings and returns a Finding if one is detected.
+// strings and returns a Finding if one is detected. Pure hex strings (hashes,
+// UUIDs) are excluded to reduce false positives.
 func highEntropyFinding(path string, lineNum int, line string) (Finding, bool) {
 	for _, m := range quotedString.FindAllStringSubmatch(line, -1) {
 		s := m[1]
 		if !isPrintableASCII(s) {
 			continue
+		}
+		if isLikelyHash(s) {
+			continue // hashes and UUIDs are not secrets
 		}
 		if shannonEntropy(s) >= entropyThreshold {
 			return Finding{
@@ -528,6 +571,51 @@ func highEntropyFinding(path string, lineNum int, line string) (Finding, bool) {
 		}
 	}
 	return Finding{}, false
+}
+
+// ---------------------------------------------------------------------------
+// Suppression — inline directive and .argusignore
+// ---------------------------------------------------------------------------
+
+// lineIsIgnored reports whether line carries an argus-ignore directive.
+// The directive is matched case-insensitively and is independent of comment
+// syntax, so # argus-ignore, // argus-ignore, and -- argus-ignore all work.
+func lineIsIgnored(line string) bool {
+	return strings.Contains(strings.ToLower(line), "argus-ignore")
+}
+
+// loadIgnorePatterns reads an .argusignore file from the package root and
+// returns the parsed glob patterns. Blank lines and lines beginning with #
+// are treated as comments and skipped. A missing file is silently ignored.
+func loadIgnorePatterns(dir string) []string {
+	data, err := os.ReadFile(filepath.Join(dir, ".argusignore"))
+	if err != nil {
+		return nil
+	}
+	var patterns []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		patterns = append(patterns, line)
+	}
+	return patterns
+}
+
+// matchesIgnore reports whether relPath matches any glob pattern in patterns.
+// Each pattern is tested against both the full relative path and the base
+// filename so that bare patterns like *.pb.go work without a leading segment.
+func matchesIgnore(relPath string, patterns []string) bool {
+	for _, p := range patterns {
+		if ok, _ := filepath.Match(p, relPath); ok {
+			return true
+		}
+		if ok, _ := filepath.Match(p, filepath.Base(relPath)); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------

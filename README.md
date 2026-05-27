@@ -141,6 +141,34 @@ argus scan ./my-package && pip install ./my-package
 argus scan package.tar.gz && npm install
 ```
 
+### Suppressing findings
+
+**Per-file: `.argusignore`**
+
+Create `.argusignore` in the package root. One glob pattern per line; lines starting with `#` are comments.
+
+```
+# skip generated protobuf files
+*.pb.go
+
+# skip vendored dependencies that you trust
+vendor/
+```
+
+**Per-line: inline directive**
+
+Add `argus-ignore` anywhere in a comment on the offending line. Works with any comment syntax.
+
+```python
+expected_sha = "a9993e364706816aba3e25717850c26c9cd0d89d"  # argus-ignore
+```
+
+```go
+conn, _ := net.Dial("tcp", "127.0.0.1:8080") // argus-ignore
+```
+
+---
+
 ### Example — clean package
 
 ```
@@ -281,7 +309,7 @@ Import aliases are resolved to their full import path, so `import ex "os/exec"; 
 
 | Rule | Detection | Severity |
 |------|-----------|----------|
-| High-entropy string | Shannon entropy ≥ 4.5 on assigned string literals longer than 20 characters (`x = "..."`) | WARNING |
+| High-entropy string | Shannon entropy ≥ 4.8 on assigned string literals of 32+ characters (`x = "..."`); pure hex strings (SHAs, UUIDs) excluded | WARNING |
 
 Private and loopback IP ranges (RFC 1918, `127.x`, `10.x`, `192.168.x`, `172.16–31.x`) are excluded from the raw IP rule.
 
@@ -418,6 +446,7 @@ The following evasion techniques are not caught by the current rule set. They ar
 | Technique | Example |
 |-----------|---------|
 | Split secret across variables | `k1="sk-abc"; k2="xyz"` |
+| High-entropy secret as positional argument | `connect("sk-realkey...")` — entropy only fires on assignments (`x = "..."`) |
 
 Taint-flow analysis is required for reliable detection of this technique.
 

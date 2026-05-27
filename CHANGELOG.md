@@ -5,6 +5,9 @@
 - **`getattr` indirection detection** — Python scanner now flags `getattr(os/subprocess/sys/__builtins__, ...)` as CRITICAL; common obfuscation technique used in real supply-chain attacks
 - **Hex/unicode escape obfuscation detection** — Python scanner now flags sequences of 4+ consecutive `\xNN` hex escapes as CRITICAL (e.g. `\x65\x76\x61\x6c` encodes `eval`)
 - **`getattr` with concatenated attribute name** — `getattr(x, "ev"+"al")` flagged as WARNING; partial heuristic covering split-string obfuscation without taint-flow analysis
+- **`.argusignore` file** — glob patterns (one per line, `#` comments supported) placed in the package root suppress matching files from scanning; useful for generated code, vendored assets, and known-safe files (e.g. `*.pb.go`, `vendor/`)
+- **Inline `argus-ignore` directive** — adding `argus-ignore` anywhere in a comment on a source line suppresses all findings for that line; works with any comment syntax (`# argus-ignore`, `// argus-ignore`, `-- argus-ignore`)
+- **Entropy false-positive reduction** — threshold raised from 4.5→4.8 bits/char; minimum string length raised from 20→32 chars; pure hex strings (SHAs, UUIDs) excluded from entropy checks
 
 ---
 

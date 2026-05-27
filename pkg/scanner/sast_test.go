@@ -336,7 +336,7 @@ func TestRegexScanner_PrivateIPIgnored_10Block(t *testing.T) {
 
 func TestRegexScanner_HighEntropy(t *testing.T) {
 	// A pseudo-random token string whose character set diversity pushes entropy
-	// well above the 4.5-bit threshold (all 62 alphanumeric chars represented).
+	// well above the 4.8-bit threshold (all 62 alphanumeric chars represented).
 	src := `secret = "xK9mN3pQ7rT1vW5yZ2bD6hJ0lF4nR8tVwXzAcEgIkMoSuYa"`
 	sc := &RegexScanner{rules: pyRules}
 	findings, err := sc.Scan("util.py", []byte(src))
@@ -382,6 +382,156 @@ func TestShannonEntropy_HighEntropy(t *testing.T) {
 	// 50 unique characters from the full alphanumeric set — entropy ≈ log2(50) ≈ 5.64 bits.
 	if shannonEntropy("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx") < entropyThreshold {
 		t.Error("diverse alphanumeric string should have entropy above threshold")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Inline argus-ignore directive
+// ---------------------------------------------------------------------------
+
+func TestInlineIgnore_RegexScanner_SuppressesLine(t *testing.T) {
+	// A dangerous call annotated with argus-ignore must produce no finding.
+	src := `eval(user_input) # argus-ignore`
+	assertRegex(t, pyRules, "script.py", src, 0, "")
+}
+
+func TestInlineIgnore_RegexScanner_DoesNotAffectOtherLines(t *testing.T) {
+	// The directive on one line must not suppress findings on adjacent lines.
+	src := "eval(x) # argus-ignore\nexec(y)"
+	assertRegex(t, pyRules, "script.py", src, 1, Critical)
+}
+
+func TestInlineIgnore_GoASTScanner_SuppressesLine(t *testing.T) {
+	// exec.Command annotated with // argus-ignore must produce no finding.
+	src := `package main
+import "os/exec"
+func main() { exec.Command("ls") } // argus-ignore`
+	assertFindings(t, &GoASTScanner{}, "main.go", src, 0, "")
+}
+
+func TestInlineIgnore_GoASTScanner_DoesNotAffectOtherLines(t *testing.T) {
+	// Directive on one line must not suppress findings on a different line.
+	src := `package main
+import "os/exec"
+func main() {
+	_ = "clean" // argus-ignore
+	exec.Command("ls")
+}`
+	assertFindings(t, &GoASTScanner{}, "main.go", src, 1, Critical)
+}
+
+func TestInlineIgnore_HighEntropy_Suppressed(t *testing.T) {
+	// High-entropy string on an argus-ignored line must not fire.
+	src := `secret = "xK9mN3pQ7rT1vW5yZ2bD6hJ0lF4nR8tVwXzAcEgIkMoSuYa" # argus-ignore`
+	sc := &RegexScanner{rules: pyRules}
+	findings, err := sc.Scan("util.py", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, f := range findings {
+		t.Errorf("expected no findings on argus-ignored line; got: %+v", f)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// .argusignore file
+// ---------------------------------------------------------------------------
+
+func TestArgusIgnore_SkipsExactFilename(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, ".argusignore", "generated.py")
+	write(t, dir, "generated.py", `eval("dangerous")`)
+	write(t, dir, "clean.py", `print("hello")`)
+
+	report, err := Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+	for _, f := range report.Findings {
+		if f.File == "generated.py" {
+			t.Errorf("expected generated.py to be ignored; got finding: %+v", f)
+		}
+	}
+}
+
+func TestArgusIgnore_GlobPattern(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, ".argusignore", "*.pb.go")
+	// Dangerous call in a generated protobuf file — should be ignored.
+	write(t, dir, "types.pb.go", `package p
+import "os/exec"
+func f() { exec.Command("id") }`)
+	// Clean main.go should produce no findings regardless.
+	write(t, dir, "main.go", `package main
+import "fmt"
+func main() { fmt.Println("ok") }`)
+
+	report, err := Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+	for _, f := range report.Findings {
+		if filepath.Base(f.File) == "types.pb.go" {
+			t.Errorf("expected types.pb.go to be ignored; got finding: %+v", f)
+		}
+	}
+}
+
+func TestArgusIgnore_CommentLinesIgnored(t *testing.T) {
+	// Comment and blank lines in .argusignore must not suppress any files.
+	dir := t.TempDir()
+	write(t, dir, ".argusignore", "# this is a comment\n\n# another comment")
+	write(t, dir, "setup.py", `eval("dangerous")`)
+
+	report, err := Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+	if !report.HasCritical {
+		t.Error("expected findings when .argusignore has only comments; got none")
+	}
+}
+
+func TestArgusIgnore_MissingFileIsOK(t *testing.T) {
+	// A package without .argusignore must scan normally.
+	dir := t.TempDir()
+	write(t, dir, "setup.py", `eval("dangerous")`)
+
+	report, err := Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+	if !report.HasCritical {
+		t.Error("expected critical finding; got none")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// isLikelyHash
+// ---------------------------------------------------------------------------
+
+func TestIsLikelyHash_SHA1(t *testing.T) {
+	if !isLikelyHash("a9993e364706816aba3e25717850c26c9cd0d89d") {
+		t.Error("SHA1 hex string should be identified as a hash")
+	}
+}
+
+func TestIsLikelyHash_UUID(t *testing.T) {
+	if !isLikelyHash("550e8400-e29b-41d4-a716-446655440000") {
+		t.Error("UUID should be identified as a hash")
+	}
+}
+
+func TestIsLikelyHash_MixedAlphanumeric(t *testing.T) {
+	// A string with chars outside [0-9a-fA-F-] is not a hash.
+	if isLikelyHash("xK9mN3pQ7rT1vW5yZ2bD6hJ0lF4nR8tVwXzAcEgIkMoSuYa") {
+		t.Error("mixed alphanumeric secret should not be identified as a hash")
+	}
+}
+
+func TestIsLikelyHash_Empty(t *testing.T) {
+	if isLikelyHash("") {
+		t.Error("empty string should not be identified as a hash")
 	}
 }
 
