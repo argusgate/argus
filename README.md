@@ -454,7 +454,7 @@ Taint-flow analysis is required for reliable detection of this technique.
 
 ## Contributing
 
-Argus is open source under the AGPL v3 licence. Commercial use requires a separate licence — see [LICENSE](LICENSE).
+Argus is open source under the AGPL v3 licence. The AGPL permits use in open-source projects; embedding Argus in a proprietary product or offering it as a hosted service without publishing your modifications under the AGPL requires a separate commercial licence — see [LICENSE](LICENSE).
 
 Pull requests are welcome. Please include tests for any new rule or scanner behaviour. Run `go test ./...` before submitting.
 

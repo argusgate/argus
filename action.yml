@@ -39,4 +39,4 @@ runs:
 
     - name: Run Argus scan
       shell: bash
-      run: argus install "${{ inputs.path }}"
+      run: argus scan "${{ inputs.path }}"

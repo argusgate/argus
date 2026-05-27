@@ -73,31 +73,31 @@ var extensionScanners = map[string]Scanner{
 
 // Scan walks dir, dispatches each recognised source file to the appropriate
 // Scanner, and returns an aggregated Report. The walk continues even when
-// individual files cannot be read or parsed. An optional .argusignore file
-// in dir may list glob patterns for files to skip entirely.
+// individual files cannot be read or parsed. Suppression directives within
+// the scanned package (inline argus-ignore comments, .argusignore files) are
+// intentionally not honoured — the package being scanned is untrusted.
 func Scan(dir string) (*Report, error) {
 	report := &Report{PackageDir: dir}
-	ignorePatterns := loadIgnorePatterns(dir)
 
 	err := fs.WalkDir(os.DirFS(dir), ".", func(relPath string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return nil // skip unreadable directories; continue walking
+			return nil
 		}
 		if d.IsDir() || !d.Type().IsRegular() {
 			return nil
 		}
-		if matchesIgnore(relPath, ignorePatterns) {
-			return nil // explicitly suppressed by .argusignore
-		}
 
 		info, err := d.Info()
-		if err != nil || info.Size() > maxFileBytes {
+		if err != nil {
 			return nil
 		}
-
-		ext := strings.ToLower(filepath.Ext(relPath))
-		sc, ok := extensionScanners[ext]
-		if !ok {
+		if info.Size() > maxFileBytes {
+			report.Findings = append(report.Findings, Finding{
+				File:     relPath,
+				Rule:     "file too large to scan",
+				Snippet:  fmt.Sprintf("size %d bytes exceeds %d-byte limit; contents not inspected", info.Size(), maxFileBytes),
+				Severity: Warning,
+			})
 			return nil
 		}
 
@@ -106,11 +106,15 @@ func Scan(dir string) (*Report, error) {
 		if err != nil {
 			report.Findings = append(report.Findings, Finding{
 				File:     relPath,
-				Line:     0,
 				Rule:     "unreadable file",
 				Snippet:  err.Error(),
 				Severity: Warning,
 			})
+			return nil
+		}
+
+		sc := pickScanner(relPath, content)
+		if sc == nil {
 			return nil
 		}
 
@@ -129,6 +133,54 @@ func Scan(dir string) (*Report, error) {
 	}
 
 	return report, nil
+}
+
+// specialFileScanners maps exact base filenames to a Scanner that understands
+// their format. These take priority over extension-based dispatch.
+var specialFileScanners = map[string]Scanner{
+	"package.json": &PackageJSONScanner{},
+}
+
+// pickScanner returns the Scanner for relPath / content, or nil when the file
+// type is not recognised. Special-case files (e.g. package.json) take priority
+// over extension dispatch. Extensionless files with a shell shebang (#!) are
+// treated as shell scripts.
+func pickScanner(relPath string, content []byte) Scanner {
+	if sc, ok := specialFileScanners[filepath.Base(relPath)]; ok {
+		return sc
+	}
+	ext := strings.ToLower(filepath.Ext(relPath))
+	if sc, ok := extensionScanners[ext]; ok {
+		return sc
+	}
+	if ext == "" && len(content) >= 2 && content[0] == '#' && content[1] == '!' {
+		return &RegexScanner{rules: shellRules}
+	}
+	return nil
+}
+
+// lifecycleKeyRe matches npm lifecycle script keys inside a package.json scripts block.
+var lifecycleKeyRe = must(`"(preinstall|install|postinstall|prepare|prepublish|prepack|postpack)"\s*:`)
+
+// PackageJSONScanner inspects package.json files for npm lifecycle scripts,
+// which execute arbitrary shell commands at install time.
+type PackageJSONScanner struct{}
+
+func (p *PackageJSONScanner) Scan(path string, content []byte) ([]Finding, error) {
+	lines := strings.Split(string(content), "\n")
+	var findings []Finding
+	for lineNum, line := range lines {
+		if lifecycleKeyRe.MatchString(line) {
+			findings = append(findings, Finding{
+				File:     path,
+				Line:     lineNum + 1,
+				Rule:     "npm lifecycle script",
+				Snippet:  strings.TrimSpace(line),
+				Severity: Critical,
+			})
+		}
+	}
+	return findings, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -238,15 +290,7 @@ func (g *GoASTScanner) Scan(path string, content []byte) ([]Finding, error) {
 		return true
 	})
 
-	// Filter out any findings on lines that carry an argus-ignore directive.
-	var kept []Finding
-	for _, f := range findings {
-		if f.Line > 0 && f.Line <= len(lines) && lineIsIgnored(lines[f.Line-1]) {
-			continue
-		}
-		kept = append(kept, f)
-	}
-	return kept, nil
+	return findings, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -276,9 +320,6 @@ func (r *RegexScanner) Scan(path string, content []byte) ([]Finding, error) {
 	var findings []Finding
 
 	for lineNum, line := range lines {
-		if lineIsIgnored(line) {
-			continue // argus-ignore directive present — suppress all checks for this line
-		}
 		trimmed := strings.TrimSpace(line)
 
 		for _, rule := range r.rules {
@@ -571,51 +612,6 @@ func highEntropyFinding(path string, lineNum int, line string) (Finding, bool) {
 		}
 	}
 	return Finding{}, false
-}
-
-// ---------------------------------------------------------------------------
-// Suppression — inline directive and .argusignore
-// ---------------------------------------------------------------------------
-
-// lineIsIgnored reports whether line carries an argus-ignore directive.
-// The directive is matched case-insensitively and is independent of comment
-// syntax, so # argus-ignore, // argus-ignore, and -- argus-ignore all work.
-func lineIsIgnored(line string) bool {
-	return strings.Contains(strings.ToLower(line), "argus-ignore")
-}
-
-// loadIgnorePatterns reads an .argusignore file from the package root and
-// returns the parsed glob patterns. Blank lines and lines beginning with #
-// are treated as comments and skipped. A missing file is silently ignored.
-func loadIgnorePatterns(dir string) []string {
-	data, err := os.ReadFile(filepath.Join(dir, ".argusignore"))
-	if err != nil {
-		return nil
-	}
-	var patterns []string
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		patterns = append(patterns, line)
-	}
-	return patterns
-}
-
-// matchesIgnore reports whether relPath matches any glob pattern in patterns.
-// Each pattern is tested against both the full relative path and the base
-// filename so that bare patterns like *.pb.go work without a leading segment.
-func matchesIgnore(relPath string, patterns []string) bool {
-	for _, p := range patterns {
-		if ok, _ := filepath.Match(p, relPath); ok {
-			return true
-		}
-		if ok, _ := filepath.Match(p, filepath.Base(relPath)); ok {
-			return true
-		}
-	}
-	return false
 }
 
 // ---------------------------------------------------------------------------

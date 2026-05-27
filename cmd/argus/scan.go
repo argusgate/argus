@@ -49,6 +49,7 @@ func scanCmd(source string, jsonOut bool) error {
 	if jsonOut {
 		printReportJSON(source, report)
 		if report.HasCritical {
+			cleanup()
 			os.Exit(1)
 		}
 		return nil
@@ -61,6 +62,7 @@ func scanCmd(source string, jsonOut bool) error {
 	if report.HasCritical {
 		if !confirmInstall() {
 			fmt.Fprintln(os.Stderr, "argus: scan blocked — critical findings present.")
+			cleanup()
 			os.Exit(1)
 		}
 	}
@@ -185,7 +187,7 @@ func expandNestedArchives(dir string, depth int, limits *extractLimits) error {
 		}
 		if exErr := extractFn(path, subDir, limits); exErr != nil {
 			os.RemoveAll(subDir)
-			return nil // malformed or over-limit nested archive — skip silently
+			return fmt.Errorf("nested archive %s: %w", filepath.Base(path), exErr)
 		}
 		return expandNestedArchives(subDir, depth+1, limits)
 	})
