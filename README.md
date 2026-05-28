@@ -31,6 +31,7 @@ argus scan package.tar.gz && npm install
 - [Installation](#installation)
 - [GitHub Actions](#github-actions)
 - [Usage](#usage)
+- [Agent Integration](#agent-integration)
 - [Rule Coverage](#rule-coverage)
 - [Architecture](#architecture)
 - [Development](#development)
@@ -52,6 +53,7 @@ Modern AI agent and MCP ecosystems encourage installing packages from the intern
 - **Regex + entropy scanning** — Python, JavaScript, TypeScript, Ruby, Rust, and shell scripts scanned for dangerous patterns, hardcoded secrets, and high-entropy strings
 - **Two severity tiers** — `CRITICAL` blocks installation with a prompt; `WARNING` is logged but non-blocking
 - **Nested archive scanning** — `.tar.gz` and `.zip` files embedded inside a package are automatically extracted and scanned (up to 2 levels deep)
+- **Agent install interception** — optional `argus shell`, PATH shims, and Claude Code hook support protect common package-manager commands that agents run directly
 - **Zip-slip protection** — archive extraction rejects path traversal attempts
 - **Extraction size cap** — 100 MiB per-file ceiling on archive extraction guards against zip-bomb payloads; source files larger than 1 MiB are skipped during SAST scanning
 - **CI-safe** — non-interactive sessions auto-decline critical findings and exit 1; no silent installs in pipelines
@@ -133,6 +135,9 @@ argus scan <source>
 | Local directory | `argus scan ./my-package` |
 | `.tar.gz` archive | `argus scan package-1.2.3.tar.gz` |
 | `.zip` archive | `argus scan package-1.2.3.zip` |
+| Python wheel (`.whl`) | `argus scan package-1.2.3-py3-none-any.whl` |
+| Rust crate (`.crate`) | `argus scan package-1.2.3.crate` |
+| Ruby gem (`.gem`) | `argus scan package-1.2.3.gem` |
 
 Argus exits 0 when the scan is clean, 1 when critical findings are present. This makes it composable with any package manager:
 
@@ -143,29 +148,35 @@ argus scan package.tar.gz && npm install
 
 ### Suppressing findings
 
-**Per-file: `.argusignore`**
+Package-local suppressions are not trusted by default. A scanned package can contain `.argusignore` or inline `argus-ignore` comments, but Argus treats package source as untrusted and does not let the package suppress its own findings.
 
-Create `.argusignore` in the package root. One glob pattern per line; lines starting with `#` are comments.
+User-controlled policy files are planned for trusted local suppressions and org-level allowlists.
 
+---
+
+## Agent Integration
+
+Manual `argus scan` remains the core primitive, but agents often run package managers directly. Argus adds three low-friction layers for those workflows:
+
+```bash
+# Temporary protected session
+argus shell
+npm install lodash
+pip install requests
+
+# Persistent PATH shims
+argus shim install
+
+# Claude Code Bash hook
+argus hook install claude
+
+# Verify setup
+argus doctor
 ```
-# skip generated protobuf files
-*.pb.go
 
-# skip vendored dependencies that you trust
-vendor/
-```
+The shims intercept common install commands such as `pip install`, `uv add`, `npm install`, `pnpm add`, `yarn add`, `cargo add`, `go install`, and `gem install`, scan local paths or resolved package archives, then delegate to the real package manager when clean.
 
-**Per-line: inline directive**
-
-Add `argus-ignore` anywhere in a comment on the offending line. Works with any comment syntax.
-
-```python
-expected_sha = "a9993e364706816aba3e25717850c26c9cd0d89d"  # argus-ignore
-```
-
-```go
-conn, _ := net.Dial("tcp", "127.0.0.1:8080") // argus-ignore
-```
+PATH shims are default-path protection, not a sandbox. Absolute binary paths, `python -m pip`, `curl | sh`, direct `git clone && make install`, and deliberate `PATH` resets can bypass local interception. Keep CI scanning enabled as a backup enforcement point.
 
 ---
 

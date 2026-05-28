@@ -25,32 +25,20 @@ var version = "dev"
 //   - a local .tar.gz or .zip archive
 //   - a directory (e.g. a previously cloned git repository)
 func scanCmd(source string, jsonOut bool) error {
-	// Resolve the package into a directory we can scan.
-	workDir, cleanup, err := prepareWorkDir(source)
+	report, cleanup, err := scanPath(source)
 	if err != nil {
-		return fmt.Errorf("preparing package: %w", err)
+		return err
 	}
 	defer cleanup()
 
-	// ── Stage 1: manifest scanner (pre-existing) ──────────────────────────
-	// Placeholder for the existing manifest scanner integration.
-	// if err := manifest.Scan(workDir); err != nil { return err }
-
-	// ── Stage 2: SAST scan ───────────────────────────────────────────────
 	if !jsonOut {
 		fmt.Fprintf(os.Stderr, "argus: running SAST scan on %s\n", source)
-	}
-
-	report, err := scanner.Scan(workDir)
-	if err != nil {
-		return fmt.Errorf("SAST scan failed: %w", err)
 	}
 
 	if jsonOut {
 		printReportJSON(source, report)
 		if report.HasCritical {
-			cleanup()
-			os.Exit(1)
+			return exitCode(1)
 		}
 		return nil
 	}
@@ -62,12 +50,27 @@ func scanCmd(source string, jsonOut bool) error {
 	if report.HasCritical {
 		if !confirmInstall() {
 			fmt.Fprintln(os.Stderr, "argus: scan blocked — critical findings present.")
-			cleanup()
-			os.Exit(1)
+			return exitCode(1)
 		}
 	}
 
 	return nil
+}
+
+// scanPath resolves source into a directory, runs the scanner, and returns the
+// report plus a cleanup function. Callers own cleanup and process exit handling.
+func scanPath(source string) (*scanner.Report, func(), error) {
+	workDir, cleanup, err := prepareWorkDir(source)
+	if err != nil {
+		return nil, nil, fmt.Errorf("preparing package: %w", err)
+	}
+
+	report, err := scanner.Scan(workDir)
+	if err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("SAST scan failed: %w", err)
+	}
+	return report, cleanup, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -95,13 +98,11 @@ func prepareWorkDir(source string) (dir string, cleanup func(), err error) {
 	cleanup = func() { os.RemoveAll(tmp) }
 
 	limits := newExtractLimits()
-	switch {
-	case strings.HasSuffix(source, ".tar.gz") || strings.HasSuffix(source, ".tgz"):
-		err = extractTarGz(source, tmp, limits)
-	case strings.HasSuffix(source, ".zip"):
-		err = extractZip(source, tmp, limits)
-	default:
+	extractFn, ok := archiveExtractorFor(source)
+	if !ok {
 		err = fmt.Errorf("unsupported archive format: %s", filepath.Ext(source))
+	} else {
+		err = extractFn(source, tmp, limits)
 	}
 
 	if err != nil {
@@ -171,14 +172,8 @@ func expandNestedArchives(dir string, depth int, limits *extractLimits) error {
 		if walkErr != nil || d.IsDir() {
 			return nil
 		}
-		lp := strings.ToLower(path)
-		var extractFn func(string, string, *extractLimits) error
-		switch {
-		case strings.HasSuffix(lp, ".tar.gz") || strings.HasSuffix(lp, ".tgz"):
-			extractFn = extractTarGz
-		case strings.HasSuffix(lp, ".zip"):
-			extractFn = extractZip
-		default:
+		extractFn, ok := archiveExtractorFor(path)
+		if !ok {
 			return nil
 		}
 		subDir := path + "!"
@@ -191,6 +186,25 @@ func expandNestedArchives(dir string, depth int, limits *extractLimits) error {
 		}
 		return expandNestedArchives(subDir, depth+1, limits)
 	})
+}
+
+type archiveExtractor func(string, string, *extractLimits) error
+
+// archiveExtractorFor returns the extractor for supported archive formats. Some
+// package-manager archive extensions are format aliases: wheels are zip files,
+// and Rust crates are gzip-compressed tar archives.
+func archiveExtractorFor(path string) (archiveExtractor, bool) {
+	lp := strings.ToLower(path)
+	switch {
+	case strings.HasSuffix(lp, ".tar.gz") || strings.HasSuffix(lp, ".tgz") || strings.HasSuffix(lp, ".crate"):
+		return extractTarGz, true
+	case strings.HasSuffix(lp, ".zip") || strings.HasSuffix(lp, ".whl"):
+		return extractZip, true
+	case strings.HasSuffix(lp, ".gem"):
+		return extractGem, true
+	default:
+		return nil, false
+	}
 }
 
 // extractTarGz unpacks a .tar.gz archive into dst, updating limits with each
@@ -208,7 +222,11 @@ func extractTarGz(src, dst string, limits *extractLimits) error {
 	}
 	defer gz.Close()
 
-	tr := tar.NewReader(gz)
+	return extractTar(gz, dst, limits)
+}
+
+func extractTar(r io.Reader, dst string, limits *extractLimits) error {
+	tr := tar.NewReader(r)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -241,6 +259,37 @@ func extractTarGz(src, dst string, limits *extractLimits) error {
 		}
 	}
 	return nil
+}
+
+// extractGem unpacks the source payload from a Ruby .gem archive. A .gem is a
+// tar file whose data.tar.gz member contains the files to scan.
+func extractGem(src, dst string, limits *extractLimits) error {
+	f, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	tr := tar.NewReader(f)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("reading gem entry: %w", err)
+		}
+		if filepath.Base(hdr.Name) != "data.tar.gz" {
+			continue
+		}
+		gz, err := gzip.NewReader(tr)
+		if err != nil {
+			return fmt.Errorf("reading gem data.tar.gz: %w", err)
+		}
+		defer gz.Close()
+		return extractTar(gz, dst, limits)
+	}
+	return fmt.Errorf("gem archive missing data.tar.gz")
 }
 
 // extractZip unpacks a .zip archive into dst, updating limits with each
@@ -314,9 +363,13 @@ func writeFile(path string, r io.Reader, mode os.FileMode, limits *extractLimits
 		return err
 	}
 	defer out.Close()
-	n, err := io.Copy(out, io.LimitReader(r, maxExtractBytes))
+	n, err := io.Copy(out, io.LimitReader(r, maxExtractBytes+1))
 	if err != nil {
 		return err
+	}
+	if n > maxExtractBytes {
+		_ = out.Truncate(maxExtractBytes)
+		return fmt.Errorf("extracted file exceeded %d MiB per-file limit", maxExtractBytes>>20)
 	}
 	return limits.addBytes(n)
 }
@@ -366,10 +419,10 @@ func printReport(packageName string, report *scanner.Report) {
 // pipe the result directly into jq or another tool.
 func printReportJSON(packageName string, report *scanner.Report) {
 	type jFinding struct {
-		File     string          `json:"file"`
-		Line     int             `json:"line"`
-		Rule     string          `json:"rule"`
-		Snippet  string          `json:"snippet,omitempty"`
+		File     string           `json:"file"`
+		Line     int              `json:"line"`
+		Rule     string           `json:"rule"`
+		Snippet  string           `json:"snippet,omitempty"`
 		Severity scanner.Severity `json:"severity"`
 	}
 	type jReport struct {
@@ -421,29 +474,5 @@ func isTTY(f *os.File) bool {
 // ---------------------------------------------------------------------------
 
 func main() {
-	args := os.Args[1:]
-
-	if len(args) >= 1 && (args[0] == "--version" || args[0] == "-version") {
-		fmt.Println("argus", version)
-		return
-	}
-
-	jsonOut := false
-	filtered := make([]string, 0, len(args))
-	for _, a := range args {
-		if a == "--json" || a == "-json" {
-			jsonOut = true
-		} else {
-			filtered = append(filtered, a)
-		}
-	}
-
-	if len(filtered) < 2 || filtered[0] != "scan" {
-		fmt.Fprintln(os.Stderr, "usage: argus scan [--json] <source>")
-		os.Exit(1)
-	}
-	if err := scanCmd(filtered[1], jsonOut); err != nil {
-		fmt.Fprintf(os.Stderr, "argus: %v\n", err)
-		os.Exit(1)
-	}
+	os.Exit(runCLI(os.Args[1:]))
 }

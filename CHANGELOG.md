@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Agent install interception MVP** — added `argus shell`, package-manager PATH shims, `argus intercept`, `argus doctor`, and Claude Code hook installation so AI agents can run normal install commands while Argus scans first
+- **Additional package archive support** — `.whl`, `.crate`, and `.gem` archives are now extracted and scanned by the shared scan path
 - **Archive extraction resource caps** — session-wide 500 MiB total decompression limit and 50,000-file ceiling prevent disk-exhaustion attacks via crafted zip/tar.gz payloads; limits are shared across nested archive levels so a multi-layer archive cannot circumvent the cap
 
 ---
